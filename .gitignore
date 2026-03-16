@@ -31,9 +31,13 @@ replay_pid*
 
 # Maven
 target/
+dependency-reduced-pom.xml
 
 # Internal design docs
 docs/
+
+# Reference source code
+opencode/
 
 # OS
 .DS_Store
