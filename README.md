@@ -7,7 +7,7 @@
   <p align="center">
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
-    <img src="https://img.shields.io/badge/License-Apache%202.0-green" alt="License"/>
+    <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
     <img src="https://img.shields.io/badge/Status-MVP1-orange" alt="Status"/>
   </p>
   <p align="center">
@@ -239,4 +239,4 @@ sprinkle-claw/
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[MIT License](LICENSE)
