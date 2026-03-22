@@ -1,0 +1,1 @@
+Edit a file by replacing exact string matches. The old_string must uniquely identify the text to replace. Supports 5-level fallback matching: exact → line-trimmed → whitespace-normalized → indentation-flexible → block-anchor (Levenshtein).

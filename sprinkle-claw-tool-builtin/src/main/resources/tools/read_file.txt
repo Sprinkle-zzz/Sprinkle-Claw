@@ -1,0 +1,1 @@
+Read the contents of a file. Returns line-numbered content. Use offset and limit for large files.
