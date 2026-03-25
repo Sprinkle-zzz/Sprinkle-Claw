@@ -4,6 +4,7 @@ import com.sprinkleclaw.core.AgentResult;
 import com.sprinkleclaw.core.ToolExecution;
 import com.sprinkleclaw.core.context.AgentContext;
 import com.sprinkleclaw.core.context.ContextManager;
+import com.sprinkleclaw.core.session.SessionManager;
 import com.sprinkleclaw.core.observability.AgentMetrics;
 import com.sprinkleclaw.core.observability.AgentTracer;
 import com.sprinkleclaw.core.observability.NoopAgentMetrics;
@@ -62,9 +63,10 @@ public final class AgentLoop {
     private final AgentTracer tracer;
     private final LoopGuard guard;
     private final ContextManager contextManager;
+    private final SessionManager sessionManager;
 
     /**
-     * 创建 Agent 执行循环。
+     * 创建 Agent 执行循环（完整参数）。
      *
      * @param llmProvider    LLM 提供者
      * @param toolExecutor   工具执行器
@@ -74,6 +76,7 @@ public final class AgentLoop {
      * @param metrics        指标收集器（null 时使用 NoOp）
      * @param tracer         追踪器（null 时使用 NoOp）
      * @param contextManager 上下文压缩调度器（null 时跳过压缩）
+     * @param sessionManager 会话管理器（null 时跳过会话持久化）
      */
     public AgentLoop(LlmProvider llmProvider,
                      ToolExecutor toolExecutor,
@@ -82,7 +85,8 @@ public final class AgentLoop {
                      AgentErrorHandler errorHandler,
                      AgentMetrics metrics,
                      AgentTracer tracer,
-                     ContextManager contextManager) {
+                     ContextManager contextManager,
+                     SessionManager sessionManager) {
         this.llmProvider = llmProvider;
         this.toolExecutor = toolExecutor;
         this.context = context;
@@ -92,10 +96,26 @@ public final class AgentLoop {
         this.tracer = tracer != null ? tracer : NoopAgentTracer.INSTANCE;
         this.guard = new LoopGuard(context.config());
         this.contextManager = contextManager;
+        this.sessionManager = sessionManager;
     }
 
     /**
-     * 创建 Agent 执行循环（不启用上下文压缩，兼容 MVP1）。
+     * 创建 Agent 执行循环（不启用会话管理，兼容第一阶段）。
+     */
+    public AgentLoop(LlmProvider llmProvider,
+                     ToolExecutor toolExecutor,
+                     AgentContext context,
+                     List<LoopHook> hooks,
+                     AgentErrorHandler errorHandler,
+                     AgentMetrics metrics,
+                     AgentTracer tracer,
+                     ContextManager contextManager) {
+        this(llmProvider, toolExecutor, context, hooks, errorHandler, metrics, tracer,
+                contextManager, null);
+    }
+
+    /**
+     * 创建 Agent 执行循环（不启用上下文压缩和会话管理，兼容 MVP1）。
      */
     public AgentLoop(LlmProvider llmProvider,
                      ToolExecutor toolExecutor,
@@ -104,7 +124,7 @@ public final class AgentLoop {
                      AgentErrorHandler errorHandler,
                      AgentMetrics metrics,
                      AgentTracer tracer) {
-        this(llmProvider, toolExecutor, context, hooks, errorHandler, metrics, tracer, null);
+        this(llmProvider, toolExecutor, context, hooks, errorHandler, metrics, tracer, null, null);
     }
 
     /**
@@ -221,7 +241,9 @@ public final class AgentLoop {
                     ToolInterception interception = ToolInterception.CONTINUE;
                     for (LoopHook hook : hooks) {
                         interception = hook.beforeToolExecution(context, call);
-                        if (interception instanceof ToolInterception.Skip) break;
+                        if (interception instanceof ToolInterception.Skip) {
+                            break;
+                        }
                     }
 
                     switch (interception) {
@@ -253,8 +275,17 @@ public final class AgentLoop {
 
                 final int postToolIteration = iteration;
                 hooks.forEach(h -> h.postToolExecution(context, postToolIteration));
+
+                // MVP2: 自动保存
+                if (sessionManager != null) {
+                    sessionManager.autoSaveIfNeeded(context, iteration);
+                }
             }
         } finally {
+            // MVP2: 循环结束最终保存
+            if (sessionManager != null) {
+                sessionManager.save(context);
+            }
             final int finalIteration = iteration;
             hooks.forEach(h -> h.onLoopEnd(context, finalIteration));
             tracer.onLoopEnd(context, finalIteration);

@@ -2,11 +2,18 @@ package com.sprinkleclaw.bootstrap;
 
 import com.sprinkleclaw.core.AgentConfig;
 import com.sprinkleclaw.core.context.AgentContext;
+import com.sprinkleclaw.core.context.ContextManager;
+import com.sprinkleclaw.core.context.TokenEstimator;
+import com.sprinkleclaw.core.context.MicroCompactor;
+import com.sprinkleclaw.core.context.PruneCompactor;
+import com.sprinkleclaw.core.context.AutoCompactor;
 import com.sprinkleclaw.core.loop.*;
 import com.sprinkleclaw.core.loop.ToolOutputTruncator;
 import com.sprinkleclaw.core.observability.AgentMetrics;
 import com.sprinkleclaw.core.observability.AgentTracer;
 import com.sprinkleclaw.core.prompt.SystemPromptBuilder;
+import com.sprinkleclaw.core.session.SessionManager;
+import com.sprinkleclaw.core.session.SessionStore;
 import com.sprinkleclaw.llm.LlmConfig;
 import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.llm.LlmProviderFactory;
@@ -69,6 +76,10 @@ public final class ClawBuilder {
     private AgentErrorHandler agentErrorHandler;
     private AgentMetrics metrics;
     private AgentTracer tracer;
+    private SessionStore sessionStore;
+    private int autoSaveInterval = 5;
+    private int compactionThreshold = 100_000;
+    private int modelContextWindow = 0;
 
     ClawBuilder() {
     }
@@ -265,6 +276,38 @@ public final class ClawBuilder {
     }
 
     /**
+     * 设置会话存储后端（启用会话持久化）。
+     */
+    public ClawBuilder sessionStore(SessionStore store) {
+        this.sessionStore = store;
+        return this;
+    }
+
+    /**
+     * 设置自动保存间隔（每 N 轮保存一次，0 禁用）。
+     */
+    public ClawBuilder autoSaveInterval(int interval) {
+        this.autoSaveInterval = interval;
+        return this;
+    }
+
+    /**
+     * 设置触发自动压缩的 token 阈值。
+     */
+    public ClawBuilder compactionThreshold(int threshold) {
+        this.compactionThreshold = threshold;
+        return this;
+    }
+
+    /**
+     * 设置模型上下文窗口大小（用于动态阈值计算，0 表示自动检测）。
+     */
+    public ClawBuilder modelContextWindow(int contextWindow) {
+        this.modelContextWindow = contextWindow;
+        return this;
+    }
+
+    /**
      * 构建 {@link Claw} Agent 实例。
      *
      * @return 构建好的 Agent
@@ -281,19 +324,68 @@ public final class ClawBuilder {
                 .loopTimeout(loopTimeout)
                 .workingDirectory(workingDirectory)
                 .blockedCommands(blockedCommands)
+                .compactionThreshold(compactionThreshold)
+                .modelContextWindow(modelContextWindow)
+                .persistSessions(sessionStore != null)
+                .autoSaveInterval(autoSaveInterval)
                 .build();
 
         String fullPrompt = SystemPromptBuilder.build(
                 registry.definitions(), workingDirectory, systemPrompt);
 
         AgentContext context = new AgentContext(fullPrompt, config, registry.definitions());
+        if (modelContextWindow > 0) {
+            context.setModelContextWindow(modelContextWindow);
+        }
+
         ToolOutputTruncator truncator = new ToolOutputTruncator(
                 config.toolOutputMaxLines(), config.toolOutputMaxBytes(), workingDirectory);
         ToolExecutor toolExecutor = new ToolExecutor(registry, toolPolicy, toolErrorHandler, truncator);
-        AgentLoop agentLoop = new AgentLoop(provider, toolExecutor, context,
-                hooks, agentErrorHandler, metrics, tracer);
 
-        return new Claw(agentLoop, context);
+        // MVP2: 构建 ContextManager
+        ContextManager contextManager = buildContextManager(provider, config);
+
+        // MVP2: 构建 SessionManager
+        SessionManager sessionManager = sessionStore != null
+                ? new SessionManager(sessionStore, autoSaveInterval)
+                : null;
+
+        AgentLoop agentLoop = new AgentLoop(provider, toolExecutor, context,
+                hooks, agentErrorHandler, metrics, tracer, contextManager, sessionManager);
+
+        return new Claw(agentLoop, context, sessionManager);
+    }
+
+    /**
+     * 构建 ContextManager（三层压缩调度器）。
+     *
+     * @return ContextManager 实例；compactionThreshold <= 0 时返回 null
+     */
+    private ContextManager buildContextManager(LlmProvider provider, AgentConfig config) {
+        if (config.compactionThreshold() <= 0) {
+            return null;
+        }
+
+        TokenEstimator estimator = new TokenEstimator();
+        MicroCompactor micro = new MicroCompactor(config.microCompactKeepRecent(), estimator);
+
+        PruneCompactor prune;
+        if (config.pruneProtectTokens() > 0 && config.pruneMinimumTokens() > 0) {
+            prune = new PruneCompactor(config.pruneProtectTokens(),
+                    config.pruneMinimumTokens(), estimator);
+        } else if (config.modelContextWindow() > 0) {
+            prune = new PruneCompactor(config.modelContextWindow(), estimator);
+        } else {
+            // 使用默认值（假设 200K 上下文窗口）
+            prune = new PruneCompactor(200_000, estimator);
+        }
+
+        Path transcriptDir = config.workingDirectory()
+                .resolve(".sprinkle-claw").resolve("transcripts");
+        AutoCompactor auto = new AutoCompactor(provider, estimator, transcriptDir);
+
+        return new ContextManager(estimator, micro, prune, auto,
+                config.compactionThreshold(), hooks);
     }
 
     /**
@@ -340,7 +432,9 @@ public final class ClawBuilder {
      */
     private String detectProvider(LlmConfig config) {
         String m = config.model().toLowerCase();
-        if (m.startsWith("claude")) return "anthropic";
+        if (m.startsWith("claude")) {
+            return "anthropic";
+        }
         // OpenAI 原生及所有兼容 OpenAI API 的厂商模型
         // gpt-*, o1-*, deepseek-*, qwen-*, glm-*, doubao-*, 等
         return "openai";
