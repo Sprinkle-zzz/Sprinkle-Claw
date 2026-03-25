@@ -3,6 +3,7 @@ package com.sprinkleclaw.core.loop;
 import com.sprinkleclaw.core.AgentResult;
 import com.sprinkleclaw.core.ToolExecution;
 import com.sprinkleclaw.core.context.AgentContext;
+import com.sprinkleclaw.core.context.ContextManager;
 import com.sprinkleclaw.core.observability.AgentMetrics;
 import com.sprinkleclaw.core.observability.AgentTracer;
 import com.sprinkleclaw.core.observability.NoopAgentMetrics;
@@ -60,17 +61,19 @@ public final class AgentLoop {
     private final AgentMetrics metrics;
     private final AgentTracer tracer;
     private final LoopGuard guard;
+    private final ContextManager contextManager;
 
     /**
      * 创建 Agent 执行循环。
      *
-     * @param llmProvider  LLM 提供者
-     * @param toolExecutor 工具执行器
-     * @param context      Agent 上下文
-     * @param hooks        生命周期钩子列表
-     * @param errorHandler 错误处理器（null 时使用默认）
-     * @param metrics      指标收集器（null 时使用 NoOp）
-     * @param tracer       追踪器（null 时使用 NoOp）
+     * @param llmProvider    LLM 提供者
+     * @param toolExecutor   工具执行器
+     * @param context        Agent 上下文
+     * @param hooks          生命周期钩子列表
+     * @param errorHandler   错误处理器（null 时使用默认）
+     * @param metrics        指标收集器（null 时使用 NoOp）
+     * @param tracer         追踪器（null 时使用 NoOp）
+     * @param contextManager 上下文压缩调度器（null 时跳过压缩）
      */
     public AgentLoop(LlmProvider llmProvider,
                      ToolExecutor toolExecutor,
@@ -78,7 +81,8 @@ public final class AgentLoop {
                      List<LoopHook> hooks,
                      AgentErrorHandler errorHandler,
                      AgentMetrics metrics,
-                     AgentTracer tracer) {
+                     AgentTracer tracer,
+                     ContextManager contextManager) {
         this.llmProvider = llmProvider;
         this.toolExecutor = toolExecutor;
         this.context = context;
@@ -87,6 +91,20 @@ public final class AgentLoop {
         this.metrics = metrics != null ? metrics : NoopAgentMetrics.INSTANCE;
         this.tracer = tracer != null ? tracer : NoopAgentTracer.INSTANCE;
         this.guard = new LoopGuard(context.config());
+        this.contextManager = contextManager;
+    }
+
+    /**
+     * 创建 Agent 执行循环（不启用上下文压缩，兼容 MVP1）。
+     */
+    public AgentLoop(LlmProvider llmProvider,
+                     ToolExecutor toolExecutor,
+                     AgentContext context,
+                     List<LoopHook> hooks,
+                     AgentErrorHandler errorHandler,
+                     AgentMetrics metrics,
+                     AgentTracer tracer) {
+        this(llmProvider, toolExecutor, context, hooks, errorHandler, metrics, tracer, null);
     }
 
     /**
@@ -116,6 +134,11 @@ public final class AgentLoop {
                     break;
                 }
                 log.debug("循环迭代 {}", iteration);
+
+                // MVP2: 压缩调度（在 preLlmCall Hook 之前）
+                if (contextManager != null) {
+                    contextManager.compactIfNeeded(context);
+                }
 
                 final int iter = iteration;
                 hooks.forEach(h -> h.preLlmCall(context, iter));
@@ -162,6 +185,8 @@ public final class AgentLoop {
                     totalInputTokens += response.usage().inputTokens();
                     totalOutputTokens += response.usage().outputTokens();
                     metrics.recordTokenUsage(response.usage().inputTokens(), response.usage().outputTokens());
+                    // MVP2: 将 API usage 写入 AgentContext，供 ContextManager 精确判断溢出
+                    context.updateTokenUsage(response.usage());
                 }
 
                 final int currentIteration = iteration;
@@ -208,10 +233,16 @@ public final class AgentLoop {
                     }
                 }
 
-                // === 执行工具 ===
+                // === 执行工具（支持自适应截断）===
                 metrics.recordToolCalls(approvedCalls.size());
+                int effectiveMaxBytes = -1;
+                if (context.config().toolOutputDynamicTruncation()
+                        && context.modelContextWindow() > 0) {
+                    effectiveMaxBytes = ToolOutputTruncator.computeMaxOutputBytes(
+                            context, context.modelContextWindow());
+                }
                 ToolExecutor.ExecutionResult execResult =
-                        toolExecutor.executeAll(approvedCalls, toolContext);
+                        toolExecutor.executeAll(approvedCalls, toolContext, effectiveMaxBytes);
 
                 allToolExecutions.addAll(execResult.executions());
 
