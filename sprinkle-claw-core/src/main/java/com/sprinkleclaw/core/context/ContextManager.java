@@ -36,6 +36,16 @@ public final class ContextManager {
     private static final Logger log = LoggerFactory.getLogger(ContextManager.class);
 
     /**
+     * CompactTool 设置的手动压缩请求标记键。
+     */
+    private static final String COMPACT_REQUESTED_KEY = "_compact_requested";
+
+    /**
+     * CompactTool 设置的压缩焦点标记键。
+     */
+    private static final String COMPACT_FOCUS_KEY = "_compact_focus";
+
+    /**
      * AutoCompactor 触发缓冲区：预留给模型输出的 token 空间
      */
     private static final int COMPACTION_BUFFER = 4000;
@@ -79,9 +89,27 @@ public final class ContextManager {
     /**
      * 每轮 LLM 调用前由 AgentLoop 调用，按需执行压缩。
      *
+     * <p>优先处理手动压缩请求（由 CompactTool 设置标记），手动压缩执行后
+     * 直接返回，避免与自动压缩叠加导致双重压缩。</p>
+     *
      * @param context Agent 上下文
      */
     public void compactIfNeeded(AgentContext context) {
+        // 检查手动压缩请求（由 compact 工具通过 attributes 标记）
+        Boolean compactRequested = context.getAttribute(COMPACT_REQUESTED_KEY);
+        if (Boolean.TRUE.equals(compactRequested)) {
+            context.setAttribute(COMPACT_REQUESTED_KEY, null);
+            String focus = context.getAttribute(COMPACT_FOCUS_KEY);
+            context.setAttribute(COMPACT_FOCUS_KEY, null);
+
+            log.info("[ContextManager] 处理手动压缩请求{}", focus != null ? "（焦点: " + focus + "）" : "");
+            CompactionResult result = manualCompact(context, focus);
+            if (result != null) {
+                context.recordCompaction();
+            }
+            return;
+        }
+
         // Layer 1: MicroCompactor（每轮执行）
         CompactionResult microResult = microCompactor.compact(context);
         if (microResult != null) {

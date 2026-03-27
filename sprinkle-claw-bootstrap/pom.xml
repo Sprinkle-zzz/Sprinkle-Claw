@@ -27,6 +27,10 @@
             <artifactId>sprinkle-claw-tool-api</artifactId>
         </dependency>
         <dependency>
+            <groupId>icu.sprinkle</groupId>
+            <artifactId>sprinkle-claw-tool-builtin</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>

@@ -166,13 +166,17 @@ public final class AgentContext {
     }
 
     /**
-     * 设置自定义属性（线程安全）。
+     * 设置自定义属性（线程安全）。null 值会移除对应键。
      *
      * @param key   属性键
-     * @param value 属性值
+     * @param value 属性值（null 时移除该键）
      */
     public void setAttribute(String key, Object value) {
-        attributes.put(key, value);
+        if (value == null) {
+            attributes.remove(key);
+        } else {
+            attributes.put(key, value);
+        }
     }
 
     /**
@@ -274,6 +278,18 @@ public final class AgentContext {
      */
     public Map<String, Object> allAttributes() {
         return Map.copyOf(attributes);
+    }
+
+    /**
+     * 返回 attributes 的可变引用，供 ToolContext 共享属性映射。
+     *
+     * <p>ToolContext 通过此引用与 AgentContext 共享同一个 attributes 实例，
+     * 使得工具（如 TodoWriteTool）可以直接读写 AgentContext 的属性。</p>
+     *
+     * @return 内部可变属性映射
+     */
+    public Map<String, Object> mutableAttributes() {
+        return attributes;
     }
 
     /**

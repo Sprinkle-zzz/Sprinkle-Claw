@@ -58,6 +58,17 @@ public final class WriteFileTool implements AgentTool {
         Path filePath = context.workingDirectory().resolve(pathStr).normalize();
 
         try {
+            // MVP2: 对已存在的文件进行时间戳校验
+            boolean isNew = !Files.exists(filePath);
+            if (!isNew) {
+                String validation = FileToolHelper.validateTimestamp(context, filePath);
+                if ("EXTERNALLY_MODIFIED".equals(validation)) {
+                    return ToolResult.error(name(),
+                            "Warning: File '" + pathStr + "' has been modified externally "
+                                    + "since it was last read. Please read the file again before overwriting.");
+                }
+            }
+
             Path parent = filePath.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
@@ -65,6 +76,12 @@ public final class WriteFileTool implements AgentTool {
 
             Files.writeString(filePath, content);
             long bytes = Files.size(filePath);
+
+            // MVP2: 记录时间戳 + 文件快照
+            FileToolHelper.recordTimestamp(context, filePath);
+            FileToolHelper.takeSnapshot(context, context.workingDirectory(), filePath,
+                    isNew, "write_file: " + filePath.getFileName());
+
             return ToolResult.success(name(),
                     "Successfully wrote " + bytes + " bytes to " + pathStr);
 

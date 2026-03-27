@@ -14,6 +14,11 @@ import com.sprinkleclaw.core.observability.AgentTracer;
 import com.sprinkleclaw.core.prompt.SystemPromptBuilder;
 import com.sprinkleclaw.core.session.SessionManager;
 import com.sprinkleclaw.core.session.SessionStore;
+import com.sprinkleclaw.core.snapshot.FileTimestampCache;
+import com.sprinkleclaw.core.snapshot.FileSnapshot;
+import com.sprinkleclaw.core.snapshot.GitFileSnapshot;
+import com.sprinkleclaw.core.snapshot.NoopFileSnapshot;
+import com.sprinkleclaw.core.snapshot.SnapshotException;
 import com.sprinkleclaw.llm.LlmConfig;
 import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.llm.LlmProviderFactory;
@@ -80,6 +85,9 @@ public final class ClawBuilder {
     private int autoSaveInterval = 5;
     private int compactionThreshold = 100_000;
     private int modelContextWindow = 0;
+    private boolean enableTodoWrite = false;
+    private int todoNagThreshold = 3;
+    private boolean enableFileSnapshot = false;
 
     ClawBuilder() {
     }
@@ -308,6 +316,30 @@ public final class ClawBuilder {
     }
 
     /**
+     * 启用 TodoWrite 工具（自动注册 TodoWriteTool + TodoReminderHook）。
+     */
+    public ClawBuilder enableTodoWrite() {
+        this.enableTodoWrite = true;
+        return this;
+    }
+
+    /**
+     * 设置 TodoWrite 提醒间隔（连续 N 轮未更新后注入提醒，默认 3）。
+     */
+    public ClawBuilder todoNagThreshold(int threshold) {
+        this.todoNagThreshold = Math.max(1, threshold);
+        return this;
+    }
+
+    /**
+     * 启用文件快照追踪（自动创建 GitFileSnapshot + FileTimestampCache）。
+     */
+    public ClawBuilder enableFileSnapshot() {
+        this.enableFileSnapshot = true;
+        return this;
+    }
+
+    /**
      * 构建 {@link Claw} Agent 实例。
      *
      * @return 构建好的 Agent
@@ -319,6 +351,19 @@ public final class ClawBuilder {
         ToolRegistry registry = new ToolRegistry();
         discoverAndRegisterTools(registry);
 
+        // MVP2: 按需注册 TodoWriteTool
+        if (enableTodoWrite) {
+            registry.register(new com.sprinkleclaw.tool.builtin.TodoWriteTool());
+            hooks.add(new TodoReminderHook(todoNagThreshold));
+            log.info("已启用 TodoWrite 工具（nag 阈值: {}）", todoNagThreshold);
+        }
+
+        // MVP2: 若配置了压缩阈值，注册 CompactTool
+        if (compactionThreshold > 0) {
+            registry.register(new com.sprinkleclaw.tool.builtin.CompactTool());
+            log.info("已注册 CompactTool（压缩阈值: {}）", compactionThreshold);
+        }
+
         AgentConfig config = AgentConfig.builder()
                 .maxLoopIterations(maxIterations)
                 .loopTimeout(loopTimeout)
@@ -328,7 +373,14 @@ public final class ClawBuilder {
                 .modelContextWindow(modelContextWindow)
                 .persistSessions(sessionStore != null)
                 .autoSaveInterval(autoSaveInterval)
+                .enableTodoWrite(enableTodoWrite)
+                .todoNagThreshold(todoNagThreshold)
+                .enableFileSnapshot(enableFileSnapshot)
                 .build();
+
+        // MVP2: 构建 FileTimestampCache 和 FileSnapshot
+        FileTimestampCache timestampCache = new FileTimestampCache();
+        FileSnapshot fileSnapshot = buildFileSnapshot(config);
 
         String fullPrompt = SystemPromptBuilder.build(
                 registry.definitions(), workingDirectory, systemPrompt);
@@ -337,6 +389,10 @@ public final class ClawBuilder {
         if (modelContextWindow > 0) {
             context.setModelContextWindow(modelContextWindow);
         }
+
+        // MVP2: 将 FileTimestampCache 和 FileSnapshot 注入到共享 attributes 中
+        context.setAttribute("fileTimestampCache", timestampCache);
+        context.setAttribute("fileSnapshot", fileSnapshot);
 
         ToolOutputTruncator truncator = new ToolOutputTruncator(
                 config.toolOutputMaxLines(), config.toolOutputMaxBytes(), workingDirectory);
@@ -354,6 +410,21 @@ public final class ClawBuilder {
                 hooks, agentErrorHandler, metrics, tracer, contextManager, sessionManager);
 
         return new Claw(agentLoop, context, sessionManager);
+    }
+
+    /**
+     * 构建 FileSnapshot 实例。启用时使用 GitFileSnapshot，Git 不可用时降级。
+     */
+    private FileSnapshot buildFileSnapshot(AgentConfig config) {
+        if (!enableFileSnapshot) {
+            return NoopFileSnapshot.INSTANCE;
+        }
+        try {
+            return new GitFileSnapshot(config.workingDirectory());
+        } catch (SnapshotException e) {
+            log.warn("GitFileSnapshot 初始化失败，降级为 NoopFileSnapshot: {}", e.getMessage());
+            return NoopFileSnapshot.INSTANCE;
+        }
     }
 
     /**

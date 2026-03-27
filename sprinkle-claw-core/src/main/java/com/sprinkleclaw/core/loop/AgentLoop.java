@@ -141,7 +141,8 @@ public final class AgentLoop {
         StopReason lastStopReason = StopReason.END_TURN;
         String lastTextOutput = "";
 
-        ToolContext toolContext = new ToolContext(context.config().workingDirectory());
+        ToolContext toolContext = new ToolContext(
+                context.config().workingDirectory(), context.mutableAttributes());
         tracer.onLoopStart(context);
 
         try {
@@ -154,6 +155,9 @@ public final class AgentLoop {
                     break;
                 }
                 log.debug("循环迭代 {}", iteration);
+
+                // MVP2: 重置 todo_write 使用标记
+                context.setAttribute(TodoReminderHook.ROUND_USED_TODO_WRITE_KEY, false);
 
                 // MVP2: 压缩调度（在 preLlmCall Hook 之前）
                 if (contextManager != null) {
@@ -272,6 +276,13 @@ public final class AgentLoop {
                 List<ToolResult> allResults = new ArrayList<>(skippedResults);
                 allResults.addAll(execResult.results());
                 context.appendToolResults(allResults);
+
+                // MVP2: 检查本轮是否执行了 todo_write
+                boolean usedTodoWrite = approvedCalls.stream()
+                        .anyMatch(c -> "todo_write".equals(c.name()));
+                if (usedTodoWrite) {
+                    context.setAttribute(TodoReminderHook.ROUND_USED_TODO_WRITE_KEY, true);
+                }
 
                 final int postToolIteration = iteration;
                 hooks.forEach(h -> h.postToolExecution(context, postToolIteration));
