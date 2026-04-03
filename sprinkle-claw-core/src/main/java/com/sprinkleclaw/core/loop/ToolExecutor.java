@@ -72,13 +72,25 @@ public final class ToolExecutor {
      * @return 执行结果
      */
     public ExecutionResult executeAll(List<ToolUseBlock> toolCalls, ToolContext context) {
+        return executeAll(toolCalls, context, -1);
+    }
+
+    /**
+     * 并发执行所有工具调用，支持自适应截断字节上限。
+     *
+     * @param toolCalls         工具调用列表
+     * @param context           工具执行上下文
+     * @param effectiveMaxBytes 动态截断字节上限（-1 表示使用默认值）
+     * @return 执行结果
+     */
+    public ExecutionResult executeAll(List<ToolUseBlock> toolCalls, ToolContext context, int effectiveMaxBytes) {
         if (toolCalls.size() == 1) {
-            return executeSingle(toolCalls.getFirst(), context);
+            return executeSingle(toolCalls.getFirst(), context, effectiveMaxBytes);
         }
 
         List<Future<SingleResult>> futures = new ArrayList<>(toolCalls.size());
         for (ToolUseBlock call : toolCalls) {
-            futures.add(executor.submit(() -> executeOne(call, context)));
+            futures.add(executor.submit(() -> executeOne(call, context, effectiveMaxBytes)));
         }
 
         List<ToolResult> results = new ArrayList<>(toolCalls.size());
@@ -103,8 +115,8 @@ public final class ToolExecutor {
     /**
      * 单个工具调用的快速路径（无需并发调度）。
      */
-    private ExecutionResult executeSingle(ToolUseBlock call, ToolContext context) {
-        SingleResult sr = executeOne(call, context);
+    private ExecutionResult executeSingle(ToolUseBlock call, ToolContext context, int effectiveMaxBytes) {
+        SingleResult sr = executeOne(call, context, effectiveMaxBytes);
         return new ExecutionResult(List.of(sr.result()), List.of(sr.execution()));
     }
 
@@ -113,8 +125,10 @@ public final class ToolExecutor {
 
     /**
      * 执行单个工具调用：安全策略检查 → 工具查找 → 执行 → 输出截断 → 错误处理。
+     *
+     * @param effectiveMaxBytes 动态截断字节上限（-1 表示使用默认值）
      */
-    private SingleResult executeOne(ToolUseBlock call, ToolContext context) {
+    private SingleResult executeOne(ToolUseBlock call, ToolContext context, int effectiveMaxBytes) {
         Instant start = Instant.now();
 
         if (policy != null) {
@@ -154,9 +168,11 @@ public final class ToolExecutor {
         try {
             ToolResult result = tool.execute(call.input(), context).withCallId(call.id());
 
-            // 输出截断
+            // 输出截断（支持自适应字节上限）
             if (truncator != null && !result.isError()) {
-                String truncatedOutput = truncator.truncateIfNeeded(call.name(), result.output());
+                String truncatedOutput = effectiveMaxBytes > 0
+                        ? truncator.truncateIfNeeded(call.name(), result.output(), effectiveMaxBytes)
+                        : truncator.truncateIfNeeded(call.name(), result.output());
                 if (!truncatedOutput.equals(result.output())) {
                     result = new ToolResult(result.toolCallId(), result.toolName(),
                             truncatedOutput, result.isError());

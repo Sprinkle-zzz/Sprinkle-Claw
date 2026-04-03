@@ -1,0 +1,13 @@
+Compress the conversation context to free up token space.
+Use this when the conversation is getting long and you want to ensure
+important context is preserved in a structured summary.
+
+The tool triggers a context compression that:
+1. Saves the full conversation to a transcript file
+2. Creates a structured summary (Goal/Instructions/Discoveries/Accomplished/Files)
+3. Replaces the conversation with the summary
+4. Replays the last user message
+
+Parameters:
+- focus: Optional hint about what to focus on in the summary
+  (e.g., "focus on the database migration work")

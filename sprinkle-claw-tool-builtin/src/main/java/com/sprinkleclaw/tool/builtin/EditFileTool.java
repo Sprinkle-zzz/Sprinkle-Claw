@@ -89,13 +89,22 @@ public final class EditFileTool implements AgentTool {
 
         Path filePath = context.workingDirectory().resolve(pathStr).normalize();
 
+        // MVP2: 时间戳校验
+        String validation = FileToolHelper.validateTimestamp(context, filePath);
+        if ("EXTERNALLY_MODIFIED".equals(validation)) {
+            return ToolResult.error(name(),
+                    "Warning: File '" + pathStr + "' has been modified externally "
+                            + "since it was last read. Please read the file again before editing.");
+        }
+
         try {
             String content = Files.readString(filePath);
             String ending = content.contains("\r\n") ? "\r\n" : "\n";
             String normalizedOld = normalizeLineEndings(oldString, ending);
             String normalizedNew = normalizeLineEndings(newString, ending);
 
-            return doReplace(content, normalizedOld, normalizedNew, replaceAll, filePath, pathStr);
+            return doReplace(content, normalizedOld, normalizedNew, replaceAll,
+                    filePath, pathStr, context);
 
         } catch (NoSuchFileException e) {
             return ToolResult.error(name(), "File not found: " + pathStr);
@@ -108,7 +117,8 @@ public final class EditFileTool implements AgentTool {
      * 依次尝试所有 Replacer，找到唯一匹配后执行替换。
      */
     private ToolResult doReplace(String content, String oldString, String newString,
-                                 boolean replaceAll, Path filePath, String pathStr)
+                                 boolean replaceAll, Path filePath, String pathStr,
+                                 ToolContext context)
             throws IOException {
         boolean anyFound = false;
 
@@ -125,6 +135,7 @@ public final class EditFileTool implements AgentTool {
                 if (replaceAll) {
                     String updated = content.replace(match, newString);
                     Files.writeString(filePath, updated);
+                    afterSuccessfulEdit(context, filePath, pathStr, "replace_all");
                     return ToolResult.success(name(), "Successfully edited " + pathStr);
                 }
 
@@ -136,6 +147,7 @@ public final class EditFileTool implements AgentTool {
                 String updated = content.substring(0, idx) + newString
                         + content.substring(idx + match.length());
                 Files.writeString(filePath, updated);
+                afterSuccessfulEdit(context, filePath, pathStr, "replace");
                 return ToolResult.success(name(), "Successfully edited " + pathStr);
             }
         }
@@ -148,6 +160,16 @@ public final class EditFileTool implements AgentTool {
         return ToolResult.error(name(),
                 "old_string found multiple times in " + pathStr + ". "
                         + "Provide more surrounding context to ensure a unique match.");
+    }
+
+    /**
+     * 编辑成功后记录时间戳和文件快照。
+     */
+    private void afterSuccessfulEdit(ToolContext context, Path filePath,
+                                     String pathStr, String strategy) {
+        FileToolHelper.recordTimestamp(context, filePath);
+        FileToolHelper.takeSnapshot(context, context.workingDirectory(), filePath,
+                false, "edit_file: " + filePath.getFileName() + " (" + strategy + ")");
     }
 
     private static String normalizeLineEndings(String text, String ending) {

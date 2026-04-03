@@ -1,5 +1,6 @@
 package com.sprinkleclaw.core.loop;
 
+import com.sprinkleclaw.core.context.AgentContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,12 +18,34 @@ import java.nio.file.Path;
  *   <li>返回截断后的预览文本，附带提示 LLM 使用 {@code read_file} 分段读取</li>
  * </ol>
  *
+ * <h3>自适应截断（v1.1 新增）</h3>
+ * <p>当启用动态截断（{@code toolOutputDynamicTruncation = true}）时，
+ * {@code maxBytes} 会根据当前上下文使用率动态调整：</p>
+ * <ul>
+ *   <li>使用率 &lt; 50%：50KB（宽裕状态）</li>
+ *   <li>使用率 50%-75%：20KB（接近阈值）</li>
+ *   <li>使用率 &gt; 75%：10KB（紧张状态）</li>
+ * </ul>
+ *
  * @author sprinkle
  * @since 2026/3/22
  */
 public final class ToolOutputTruncator {
 
     private static final Logger log = LoggerFactory.getLogger(ToolOutputTruncator.class);
+
+    /**
+     * 宽裕状态字节上限：50KB
+     */
+    private static final int BYTES_RELAXED = 50 * 1024;
+    /**
+     * 接近阈值字节上限：20KB
+     */
+    private static final int BYTES_MODERATE = 20 * 1024;
+    /**
+     * 紧张状态字节上限：10KB
+     */
+    private static final int BYTES_TIGHT = 10 * 1024;
 
     private final int maxLines;
     private final int maxBytes;
@@ -49,6 +72,27 @@ public final class ToolOutputTruncator {
     }
 
     /**
+     * 根据上下文使用率计算动态截断字节上限。
+     *
+     * @param context            Agent 上下文（用于读取 cachedTokenCount）
+     * @param modelContextWindow 模型上下文窗口大小
+     * @return 动态计算的字节上限
+     */
+    public static int computeMaxOutputBytes(AgentContext context, int modelContextWindow) {
+        if (modelContextWindow <= 0) {
+            return BYTES_RELAXED;
+        }
+        int cachedTokens = context.cachedTokenCount();
+        if (cachedTokens < 0) {
+            return BYTES_RELAXED;
+        }
+        double usage = (double) cachedTokens / modelContextWindow;
+        if (usage < 0.5) return BYTES_RELAXED;
+        if (usage < 0.75) return BYTES_MODERATE;
+        return BYTES_TIGHT;
+    }
+
+    /**
      * 若输出超限则截断并保存完整内容到临时文件，否则原样返回。
      *
      * @param toolName 工具名称（用于生成临时文件名）
@@ -56,11 +100,23 @@ public final class ToolOutputTruncator {
      * @return 截断后的输出（或原样返回）
      */
     public String truncateIfNeeded(String toolName, String output) {
+        return truncateIfNeeded(toolName, output, maxBytes);
+    }
+
+    /**
+     * 自适应截断：使用指定的字节上限判断是否截断。
+     *
+     * @param toolName          工具名称
+     * @param output            工具原始输出
+     * @param effectiveMaxBytes 当前有效的字节上限（可能由 {@link #computeMaxOutputBytes} 动态计算）
+     * @return 截断后的输出（或原样返回）
+     */
+    public String truncateIfNeeded(String toolName, String output, int effectiveMaxBytes) {
         if (output == null || output.isEmpty()) {
             return output;
         }
 
-        boolean exceedsBytes = output.getBytes(StandardCharsets.UTF_8).length > maxBytes;
+        boolean exceedsBytes = output.getBytes(StandardCharsets.UTF_8).length > effectiveMaxBytes;
         boolean exceedsLines = countLines(output) > maxLines;
 
         if (!exceedsBytes && !exceedsLines) {
@@ -68,7 +124,7 @@ public final class ToolOutputTruncator {
         }
 
         Path savedPath = saveFullOutput(toolName, output);
-        String preview = truncate(output);
+        String preview = truncate(output, effectiveMaxBytes);
         String hint = savedPath != null
                 ? "\n\n[Output truncated. Full output saved to: " + savedPath
                 + "]\n[Use read_file with offset/limit to view specific sections]"
@@ -78,12 +134,11 @@ public final class ToolOutputTruncator {
     }
 
     /**
-     * 截断输出到 maxLines 行以内。
+     * 截断输出到 maxLines 行和指定字节上限以内。
      */
-    private String truncate(String output) {
+    private String truncate(String output, int byteLimit) {
         String[] lines = output.split("\n", -1);
         if (lines.length <= maxLines) {
-            int byteLimit = maxBytes;
             if (output.getBytes(StandardCharsets.UTF_8).length <= byteLimit) {
                 return output;
             }
@@ -97,7 +152,11 @@ public final class ToolOutputTruncator {
             }
             sb.append(lines[i]);
         }
-        return sb.toString();
+        String linesTruncated = sb.toString();
+        if (linesTruncated.getBytes(StandardCharsets.UTF_8).length > byteLimit) {
+            return new String(linesTruncated.getBytes(StandardCharsets.UTF_8), 0, byteLimit, StandardCharsets.UTF_8);
+        }
+        return linesTruncated;
     }
 
     /**

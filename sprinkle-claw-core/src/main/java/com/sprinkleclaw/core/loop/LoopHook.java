@@ -1,6 +1,7 @@
 package com.sprinkleclaw.core.loop;
 
 import com.sprinkleclaw.core.context.AgentContext;
+import com.sprinkleclaw.core.context.CompactionResult;
 import com.sprinkleclaw.protocol.llm.ChatResponse;
 import com.sprinkleclaw.protocol.message.ContentBlock.ToolUseBlock;
 
@@ -10,7 +11,8 @@ import com.sprinkleclaw.protocol.message.ContentBlock.ToolUseBlock;
  *
  * <h3>调用时序</h3>
  * <pre>
- * preLlmCall → LLM 调用 → postLlmCall → beforeToolExecution（每个工具）
+ * [ContextManager.compactIfNeeded → afterCompaction（如果触发）]
+ *   → preLlmCall → LLM 调用 → postLlmCall → beforeToolExecution（每个工具）
  *   → 工具执行 → postToolExecution → ... → onLoopEnd
  * </pre>
  *
@@ -58,6 +60,18 @@ public interface LoopHook {
      * @param iteration 当前迭代轮次
      */
     default void postToolExecution(AgentContext context, int iteration) {
+    }
+
+    /**
+     * 在压缩完成后、下一次 LLM 调用前触发。
+     *
+     * <p>用途：记录压缩统计、注入系统提醒（如 "Context was compressed"）、
+     * 触发 UI 通知等。</p>
+     *
+     * @param context 当前上下文
+     * @param result  压缩结果
+     */
+    default void afterCompaction(AgentContext context, CompactionResult result) {
     }
 
     /**

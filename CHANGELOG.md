@@ -5,6 +5,107 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.3.0] - 2026-03-27
+
+### 新增
+
+#### 三层上下文压缩
+- **`TokenEstimator`**：CJK 自适应 token 估算器，根据中日韩字符比例动态调整分词因子
+- **`MicroCompactor`**：每轮执行的微压缩，将旧 tool_result 替换为占位符文本，保留最近 N 个
+- **`PruneCompactor`**：基于动态阈值的裁剪压缩，保护区大小随模型上下文窗口自适应（20%，40K-200K）
+- **`AutoCompactor`**：LLM 结构化摘要压缩，生成 Goal/Instructions/Discoveries/Accomplished/Files 五段式摘要，压缩前将完整会话存入 transcript 文件
+- **`ContextManager`**：三层压缩调度中枢，支持 API usage 精确溢出判断（双轨策略）+ 手动压缩请求处理
+- **`CompactionResult`**：压缩结果 record，包含压缩类型、前后 token 数、摘要内容
+
+#### 会话管理与持久化
+- **`SessionStore` SPI**：会话持久化接口，定义 save/load/delete/listSessions 操作
+- **`InMemorySessionStore`**：基于 ConcurrentHashMap 的内存会话存储
+- **`FileSessionStore`**：基于文件系统的会话存储，使用原子写入（temp + rename）保证数据安全，列表操作使用 Jackson Streaming API 优化性能
+- **`SessionSnapshot`**：会话快照 record，封装完整会话状态（消息、配置、元数据）
+- **`SessionManager`**：会话生命周期管理器，支持创建、恢复、手动保存和自动保存
+- **`SessionObjectMapper`**：Jackson Mixin 序列化方案，无需修改 protocol 模块即可处理 sealed interface 多态
+
+#### TodoWrite 工具
+- **`TodoWriteTool`**：结构化任务管理工具，支持创建/合并/替换待办事项列表
+- **`TodoState`**：待办事项状态 record，支持合并模式（按 id 更新）和替换模式（全量替换），以及压缩时的活跃项精简
+- **`TodoItem`**：单个待办事项 record（id、content、status）
+- **`TodoReminderHook`**：Nag Reminder 钩子，连续 N 轮未更新 todo 时注入提醒，压缩后自动注入 todo-snapshot
+
+#### Compact 工具
+- **`CompactTool`**：手动上下文压缩工具，模型可主动触发压缩释放 token 空间，支持 focus 参数指定摘要焦点
+
+#### 文件快照与变更追踪
+- **`FileSnapshot` SPI**：文件快照接口，支持 snapshot/undo/redo/history 操作
+- **`NoopFileSnapshot`**：默认空实现，未启用快照时使用
+- **`GitFileSnapshot`**：基于独立 Shadow Git 仓库的实现，不影响项目版本控制；自动跳过大文件（>10MB）和二进制文件；Git 操作 synchronized 串行化
+- **`FileTimestampCache`**：文件时间戳缓存，记录 Agent 读写文件时的 lastModified，编辑前校验外部修改
+- **`SnapshotException`**：快照操作异常类
+
+#### ToolContext 扩展
+- **`ToolContext`**：从 record 重构为 class，新增 `attributes` 通用属性映射，支持 `getAttribute`/`setAttribute` 方法，实现 AgentLoop 与工具间的数据共享
+- **`FileToolHelper`**：文件工具辅助类，通过 MethodHandle 反射桥接 core 模块的 FileTimestampCache 和 FileSnapshot，保持 tool-builtin 模块的轻量依赖
+
+#### AgentConfig 新增配置
+- **`compactionThreshold`**（默认 100K）：触发自动压缩的 token 阈值
+- **`microCompactKeepRecent`**（默认 3）：微压缩保留最近 N 个 tool_result
+- **`pruneProtectTokens`**/**`pruneMinimumTokens`**：Prune 保护区与最小裁剪量
+- **`persistSessions`**：是否启用会话持久化
+- **`sessionDirectory`**：会话存储目录
+- **`autoSaveInterval`**（默认 5）：每 N 轮自动保存
+- **`enableTodoWrite`**：是否启用 TodoWrite 工具
+- **`todoNagThreshold`**（默认 3）：Todo 提醒间隔
+- **`enableFileSnapshot`**：是否启用文件快照追踪
+- **`toolOutputDynamicTruncation`**：工具输出截断阈值是否随上下文使用率动态调整
+- **`modelContextWindow`**：模型上下文窗口大小
+
+#### Claw API 扩展
+- **`chat(String)`**：连续上下文多轮对话
+- **`resume(String, String)`**：从磁盘恢复会话并继续对话
+- **`sessionId()`**：获取当前会话 ID
+- **`listSessions()`**：列出所有可恢复的会话
+
+#### ClawBuilder 新增配置方法
+- **`enableTodoWrite()`**：一键启用 TodoWrite 工具 + TodoReminderHook
+- **`enableFileSnapshot()`**：一键启用 GitFileSnapshot + FileTimestampCache
+- **`sessionStore(SessionStore)`**：设置会话存储后端
+- **`compactionThreshold(int)`**：设置压缩阈值（同时自动注册 CompactTool）
+- **`modelContextWindow(int)`**：设置模型上下文窗口大小
+
+### 变更
+
+#### 内置工具文件安全增强
+- `ReadFileTool`：读取成功后自动记录文件时间戳到 FileTimestampCache
+- `WriteFileTool`：写入前对已存在文件进行时间戳校验（检测外部修改），写入后记录时间戳并创建快照
+- `EditFileTool`：编辑前进行时间戳校验，编辑后记录时间戳并创建快照
+
+#### AgentLoop 流程增强
+- 每轮迭代开始时执行 `ContextManager.compactIfNeeded()` 进行压缩调度
+- 将 API usage 写入 AgentContext 供精确溢出判断
+- ToolContext 共享 AgentContext 的 attributes 映射
+- 跟踪 todo_write 工具使用状态，支持 TodoReminderHook
+
+#### AgentContext 增强
+- 新增 `mutableAttributes()` 方法供 ToolContext 共享属性映射
+- `setAttribute()` 支持 null 值（自动移除键）
+- 新增 `mutableMessages()`、`replaceMessages()`、`prependMessage()` 支持压缩操作
+- 新增 `invalidateTokenCache()`、`cachedTokenCount()`、`setCachedTokenCount()` 支持 token 缓存
+- 新增 `updateTokenUsage()`、`lastTokenUsage()` 支持 API usage 精确判断
+- 新增 `modelContextWindow()`、`modelMaxOutputTokens()` 模型元数据
+- 新增 `recordCompaction()`、`compactionCount()`、`lastCompactionAt()` 压缩统计
+
+#### LoopHook 新增钩子
+- **`afterCompaction(AgentContext, CompactionResult)`**：压缩完成后触发，用于注入提醒或记录统计
+
+#### ToolOutputTruncator 自适应截断
+- 新增 `computeMaxOutputBytes()` 静态方法，根据上下文使用率动态调整截断阈值（50KB→20KB→10KB）
+- `ToolExecutor.executeAll()` 支持传入动态截断字节上限
+
+#### 依赖变更
+- `sprinkle-claw-core` 新增 `jackson-datatype-jsr310` 依赖（用于 Instant 序列化）
+- `sprinkle-claw-bootstrap` 新增 `sprinkle-claw-tool-builtin` 依赖（用于注册 TodoWriteTool/CompactTool）
+
+---
+
 ## [0.2.0] - 2026-03-22
 
 ### 新增

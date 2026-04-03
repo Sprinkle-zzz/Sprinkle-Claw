@@ -63,13 +63,17 @@ public final class ReadFileTool implements AgentTool {
             int limit = input.containsKey("limit")
                     ? ((Number) input.get("limit")).intValue() : lines.size();
 
-            offset = Math.clamp(offset, 0, lines.size());
-            limit = Math.min(limit, lines.size() - offset);
+            offset = Math.max(0, Math.min(offset, lines.size()));
+            limit = Math.max(0, Math.min(limit, lines.size() - offset));
 
             var sb = new StringBuilder();
             for (int i = offset; i < offset + limit; i++) {
                 sb.append(String.format("%6d|%s%n", i + 1, lines.get(i)));
             }
+
+            // MVP2: 记录文件时间戳
+            FileToolHelper.recordTimestamp(context, filePath);
+
             return ToolResult.success(name(), sb.toString());
 
         } catch (NoSuchFileException e) {

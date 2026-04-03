@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP1-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP2-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -50,12 +50,18 @@
 | **多厂商 LLM** | Anthropic Claude + OpenAI 兼容协议（DeepSeek、Qwen、GLM、豆包等），切模型只需换 baseUrl |
 | **SPI 插件体系** | Provider / Tool / Hook / Metrics / Tracer 全部通过 Java SPI，编译期类型安全 |
 
+| **三层上下文压缩** | Micro（占位符替换）→ Prune（动态阈值裁剪）→ Auto（LLM 结构化摘要），API usage 精确溢出判断 |
+| **会话持久化** | SessionStore SPI（File / InMemory），原子写入，Jackson Mixin 多态序列化，自动保存 + resume |
+| **Token 估算** | CJK 自适应 token 估算，上下文使用率感知的动态工具输出截断（50KB→20KB→10KB） |
+| **TodoWrite 工具** | 结构化任务管理，Nag Reminder 机制，压缩后 todo-snapshot 自动注入 |
+| **Compact 工具** | 模型主动触发压缩，支持 focus 参数指定摘要焦点 |
+| **文件快照追踪** | Shadow Git 仓库追踪变更，Undo/Redo 支持，文件时间戳校验防止外部修改冲突 |
+| **多轮对话 API** | `chat()` 连续上下文 / `resume()` 会话恢复 / `listSessions()` 会话列表 |
+
 ### 📋 规划中
 
 | 特性 | 目标阶段 |
 |------|---------|
-| 三层上下文压缩（Prune → 自动摘要 → Hard-Limit） | MVP2 |
-| 会话持久化 + Token 估算 | MVP2 |
 | SubAgent 隔离派生 + Skill 两层加载 | MVP3 |
 | AgentEvent 流式输出 + REST / SSE / WebSocket | MVP4 |
 | @Agent 声明式 + Workflow 编排（5 种模式） | MVP5 |
@@ -85,12 +91,14 @@ mvn clean install -DskipTests
 import com.sprinkleclaw.bootstrap.ClawBuilder;
 import com.sprinkleclaw.core.AgentResult;
 
-var agent = new ClawBuilder()
+var agent = ClawBuilder.create()
         .apiKey("sk-your-api-key")
         .model("deepseek-chat")
         .baseUrl("https://api.deepseek.com")
         .workdir(Path.of("."))
         .maxIterations(20)
+        .enableTodoWrite()          // MVP2: 任务管理
+        .compactionThreshold(100_000)  // MVP2: 自动压缩
         .build();
 
 AgentResult result = agent.run("读取 pom.xml，告诉我项目用了哪些依赖");
@@ -155,9 +163,9 @@ public class MyTools {
 | `sprinkle-claw-llm-openai` | OpenAI 兼容 API 实现（覆盖 DeepSeek、Qwen、GLM、豆包等） | llm-api | ✅ 已实现 |
 | `sprinkle-claw-llm-ollama` | Ollama 本地模型实现 | llm-api | 📋 MVP5 |
 | `sprinkle-claw-tool-api` | 工具 SPI：AgentTool、@Tool 注解、ToolRegistry、ToolProvider、ToolPolicy、GlobToolPolicy | protocol | ✅ 已实现 |
-| `sprinkle-claw-tool-builtin` | 4 个内置工具：bash / read_file / write_file / edit_file（5 层回退匹配） | tool-api | ✅ 已实现 |
-| `sprinkle-claw-core` | 核心引擎：AgentLoop、LoopGuard、ToolExecutor、ToolInterception、可观测性 | protocol, llm-api, tool-api | ✅ 已实现 |
-| `sprinkle-claw-bootstrap` | Builder API + ServiceLoader 自动组装 | 全部核心模块 | ✅ 已实现 |
+| `sprinkle-claw-tool-builtin` | 6 个内置工具：bash / read_file / write_file / edit_file / todo_write / compact | tool-api | ✅ 已实现 |
+| `sprinkle-claw-core` | 核心引擎：AgentLoop、ContextManager（三层压缩）、SessionManager、FileSnapshot、LoopGuard、ToolExecutor | protocol, llm-api, tool-api | ✅ 已实现 |
+| `sprinkle-claw-bootstrap` | Builder API + ServiceLoader 自动组装 + 会话管理 | 全部核心模块 | ✅ 已实现 |
 | `sprinkle-claw-benchmark` | JMH 性能基准：工具并发 / JSON 序列化 | core | ✅ 已实现 |
 | `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 | core | 📋 MVP3 |
 | `sprinkle-claw-workflow` | @Agent 声明式 + Workflow 编排（5 种模式） | core | 📋 MVP5 |
@@ -178,9 +186,9 @@ sprinkle-claw/
 ├── sprinkle-claw-llm-anthropic     ← Anthropic Claude 实现
 ├── sprinkle-claw-llm-openai        ← OpenAI 兼容 API 实现
 ├── sprinkle-claw-tool-api          ← 工具 SPI + @Tool 注解 + GlobToolPolicy
-├── sprinkle-claw-tool-builtin      ← 内置工具（bash / read / write / edit）
-├── sprinkle-claw-core              ← 核心引擎（AgentLoop + 可观测性 + 循环保护）
-├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader）
+├── sprinkle-claw-tool-builtin      ← 内置工具（bash / read / write / edit / todo_write / compact）
+├── sprinkle-claw-core              ← 核心引擎（AgentLoop + 三层压缩 + 会话管理 + 文件快照）
+├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader + 会话恢复）
 └── sprinkle-claw-benchmark         ← JMH 性能基准
 ```
 
@@ -205,7 +213,7 @@ sprinkle-claw/
 | 阶段 | 目标 | 状态 |
 |------|------|------|
 | **MVP1** | Agent Loop + 工具并发 + @Tool 注解 + ToolPolicy + 5 层回退编辑 + ToolInterception 钩子 + Doom Loop 检测 + 输出截断 + Anthropic + OpenAI 兼容 | ✅ 已完成 |
-| **MVP2** | 三层上下文压缩 + 会话持久化 + Token 估算 + TodoWrite | 📋 计划中 |
+| **MVP2** | 三层上下文压缩 + 会话持久化 + Token 估算 + TodoWrite + Compact + FileSnapshot | ✅ 已完成 |
 | **MVP3** | SubAgent（约束隔离）+ Skill 两层加载 + 持久化任务板 + 后台任务 | 📋 计划中 |
 | **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + REST API (OpenAI 兼容) + SSE / WebSocket | 📋 计划中 |
 | **MVP5** | Ollama Provider + @Agent 声明式 + Workflow 编排 (5 模式) + MCP 协议适配 | 📋 计划中 |

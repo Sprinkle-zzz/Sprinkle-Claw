@@ -1,0 +1,23 @@
+Use this tool to create and manage a structured task list for your current coding session.
+This helps track progress, organize complex tasks, and demonstrate thoroughness.
+
+When to use:
+- Complex multi-step tasks (3+ distinct steps)
+- Non-trivial tasks requiring careful planning
+- After receiving new instructions - capture requirements as todos
+
+Task states:
+- pending: Not yet started
+- in_progress: Currently working on (only ONE at a time)
+- completed: Finished successfully
+- cancelled: No longer needed
+
+Parameters:
+- todos: Array of todo items with id, content, and status
+- merge: If true, merge into existing todos by id; if false, replace all
+
+Best practices:
+- Create specific, actionable items
+- Mark complete IMMEDIATELY after finishing each step
+- Only ONE task in_progress at a time
+- Skip for simple, straightforward tasks (< 3 steps)
