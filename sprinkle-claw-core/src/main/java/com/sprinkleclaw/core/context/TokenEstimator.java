@@ -4,24 +4,28 @@ import com.sprinkleclaw.protocol.message.ContentBlock;
 import com.sprinkleclaw.protocol.message.ContentBlock.*;
 import com.sprinkleclaw.protocol.message.Message;
 import com.sprinkleclaw.protocol.message.Message.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * 基于字符数的快速 Token 估算器。
+ * Token 估算器，支持字符估算和 jtokkit 精确估算两种模式。
  *
- * <p>支持 CJK（中日韩）内容自适应估算：根据文本中 CJK 字符的占比动态调整估算因子。
+ * <p>字符估算（默认）：根据文本中 CJK 字符的占比动态调整估算因子。
  * 英文内容约 4 字符/token，中文内容约 2 字符/token，混合内容按比例插值。</p>
  *
- * <p>精确的 token 计数需要依赖具体 tokenizer（如 tiktoken），引入外部依赖且不同模型的
- * tokenizer 不同。当前采用字符估算满足压缩阈值判断的精度需求。
- * 更高精度的 tokenizer 方案（jtokkit）计划在 MVP3 实现。</p>
+ * <p>jtokkit 精确估算（MVP3 新增）：当 classpath 中存在 jtokkit 库时，
+ * 使用实际 tokenizer 进行精确估算。通过 {@link #forModel(String)} 工厂方法创建。
+ * jtokkit 不可用时自动 fallback 到字符估算。</p>
  *
  * @author sprinkle
  * @since 2026/3/23
  */
 public final class TokenEstimator {
+
+    private static final Logger log = LoggerFactory.getLogger(TokenEstimator.class);
 
     /**
      * 角色标记和消息结构的固定开销（约 4 tokens）
@@ -47,6 +51,57 @@ public final class TokenEstimator {
      * 纯 CJK 估算因子：约 2 字符/token
      */
     private static final double CJK_FACTOR = 2.0;
+
+    /**
+     * jtokkit Encoding 实例（通过反射持有，null 表示使用字符估算）
+     */
+    private final Object jtokkitEncoding;
+
+    /**
+     * 创建默认的字符估算器。
+     */
+    public TokenEstimator() {
+        this.jtokkitEncoding = null;
+    }
+
+    /**
+     * 创建带 jtokkit encoding 的精确估算器（内部构造）。
+     */
+    private TokenEstimator(Object jtokkitEncoding) {
+        this.jtokkitEncoding = jtokkitEncoding;
+    }
+
+    /**
+     * 根据模型名称创建精确估算器。
+     * <p>如果 classpath 中存在 jtokkit 库且模型受支持，返回精确估算器；
+     * 否则 fallback 到字符估算器。</p>
+     *
+     * @param modelName 模型名称（如 "gpt-4", "claude-3-opus" 等）
+     * @return TokenEstimator 实例
+     */
+    public static TokenEstimator forModel(String modelName) {
+        try {
+            Class<?> registryClass = Class.forName("com.knuddels.jtokkit.Encodings");
+            Object registry = registryClass.getMethod("newDefaultEncodingRegistry").invoke(null);
+
+            // 尝试使用 cl100k_base（GPT-4/ChatGPT 的默认编码，也适用于 Claude 近似估算）
+            Class<?> encodingTypeClass = Class.forName("com.knuddels.jtokkit.api.EncodingType");
+            Object cl100kBase = Enum.valueOf(
+                    encodingTypeClass.asSubclass(Enum.class), "CL100K_BASE");
+            Object encoding = registry.getClass()
+                    .getMethod("getEncoding", encodingTypeClass)
+                    .invoke(registry, cl100kBase);
+
+            log.info("[TokenEstimator] 使用 jtokkit (cl100k_base) 精确估算器，模型: {}", modelName);
+            return new TokenEstimator(encoding);
+        } catch (ClassNotFoundException e) {
+            log.debug("[TokenEstimator] jtokkit 不在 classpath 中，使用字符估算");
+            return new TokenEstimator();
+        } catch (Exception e) {
+            log.warn("[TokenEstimator] jtokkit 初始化失败，使用字符估算: {}", e.getMessage());
+            return new TokenEstimator();
+        }
+    }
 
     /**
      * 估算单条消息的 token 数。
@@ -78,14 +133,8 @@ public final class TokenEstimator {
     }
 
     /**
-     * 估算纯文本的 token 数，支持 CJK 内容自适应。
-     *
-     * <p>根据文本中 CJK 字符的占比动态调整估算因子：</p>
-     * <ul>
-     *   <li>纯英文：约 4 字符/token（factor = 4.0）</li>
-     *   <li>纯中文：约 2 字符/token（factor = 2.0）</li>
-     *   <li>混合内容：按 CJK 比例线性插值</li>
-     * </ul>
+     * 估算纯文本的 token 数。
+     * <p>如果 jtokkit 可用则使用精确估算，否则使用 CJK 自适应字符估算。</p>
      *
      * @param text 要估算的文本
      * @return 估算 token 数
@@ -94,9 +143,39 @@ public final class TokenEstimator {
         if (text == null || text.isEmpty()) {
             return 0;
         }
+        if (jtokkitEncoding != null) {
+            return jtokkitEstimate(text);
+        }
+        return charEstimate(text);
+    }
+
+    /**
+     * 使用 jtokkit 进行精确 token 估算。
+     */
+    private int jtokkitEstimate(String text) {
+        try {
+            Object result = jtokkitEncoding.getClass()
+                    .getMethod("countTokens", String.class)
+                    .invoke(jtokkitEncoding, text);
+            return (int) result;
+        } catch (Exception e) {
+            log.debug("[TokenEstimator] jtokkit 估算失败，fallback 到字符估算: {}", e.getMessage());
+            return charEstimate(text);
+        }
+    }
+
+    /**
+     * 字符估算：基于 CJK 字符比例动态调整因子。
+     *
+     * <ul>
+     *   <li>纯英文：约 4 字符/token（factor = 4.0）</li>
+     *   <li>纯中文：约 2 字符/token（factor = 2.0）</li>
+     *   <li>混合内容：按 CJK 比例线性插值</li>
+     * </ul>
+     */
+    private int charEstimate(String text) {
         int cjkCount = countCjkChars(text);
         double cjkRatio = (double) cjkCount / text.length();
-        // CJK 多则因子低（~2），英文多则因子高（~4），混合按比例插值
         double factor = ENGLISH_FACTOR - (cjkRatio * (ENGLISH_FACTOR - CJK_FACTOR));
         return (int) Math.ceil(text.length() / factor);
     }
@@ -125,6 +204,9 @@ public final class TokenEstimator {
             return 0;
         }
         String serialized = json.toString();
+        if (jtokkitEncoding != null) {
+            return jtokkitEstimate(serialized);
+        }
         return (int) Math.ceil(serialized.length() / 3.0);
     }
 

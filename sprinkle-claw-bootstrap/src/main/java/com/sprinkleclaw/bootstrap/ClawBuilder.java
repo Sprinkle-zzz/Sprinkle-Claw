@@ -395,7 +395,8 @@ public final class ClawBuilder {
         context.setAttribute("fileSnapshot", fileSnapshot);
 
         ToolOutputTruncator truncator = new ToolOutputTruncator(
-                config.toolOutputMaxLines(), config.toolOutputMaxBytes(), workingDirectory);
+                config.toolOutputMaxLines(), config.toolOutputMaxBytes(),
+                config.largeOutputFileThreshold(), workingDirectory);
         ToolExecutor toolExecutor = new ToolExecutor(registry, toolPolicy, toolErrorHandler, truncator);
 
         // MVP2: 构建 ContextManager
@@ -438,17 +439,18 @@ public final class ClawBuilder {
         }
 
         TokenEstimator estimator = new TokenEstimator();
-        MicroCompactor micro = new MicroCompactor(config.microCompactKeepRecent(), estimator);
+        java.util.Set<String> protectedTools = config.protectedTools();
+        MicroCompactor micro = new MicroCompactor(config.microCompactKeepRecent(), estimator, protectedTools);
 
         PruneCompactor prune;
         if (config.pruneProtectTokens() > 0 && config.pruneMinimumTokens() > 0) {
             prune = new PruneCompactor(config.pruneProtectTokens(),
-                    config.pruneMinimumTokens(), estimator);
+                    config.pruneMinimumTokens(), estimator, protectedTools);
         } else if (config.modelContextWindow() > 0) {
-            prune = new PruneCompactor(config.modelContextWindow(), estimator);
+            prune = new PruneCompactor(config.modelContextWindow(), estimator, protectedTools);
         } else {
             // 使用默认值（假设 200K 上下文窗口）
-            prune = new PruneCompactor(200_000, estimator);
+            prune = new PruneCompactor(200_000, estimator, protectedTools);
         }
 
         Path transcriptDir = config.workingDirectory()
