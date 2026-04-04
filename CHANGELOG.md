@@ -5,6 +5,87 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.4.0] - 2026-04-04
+
+### 新增
+
+#### 新模块：`sprinkle-claw-agent-ext`
+- **`SubAgentSpawner`**：子 Agent 派生核心逻辑，隔离上下文 + 独立 LoopGuard + 工具过滤 + 摘要返回
+- **`SubAgentConfig`**：子 Agent 配置 record（轮次限制、超时、工具黑白名单、模型覆盖），内置 `explore()` / `execute()` / `plan()` 三种预设
+- **`SubAgentTool`**：`sub_agent` 工具封装，支持 task / tools / max_iterations / model 参数
+- **`SkillLoader`**：Skill 两层加载器，Layer1 system prompt 元数据注入 + Layer2 `load_skill` 按需加载
+- **`SkillEntry`**：Skill 元数据 record（name, description, tags, body, path）
+- **`SkillRegistry`**：Skill 注册表，按名称索引
+- **`SkillFrontmatterParser`**：YAML Frontmatter 纯手写解析（不引入 YAML 库）
+- **`LoadSkillTool`**：`load_skill` 工具封装
+- **`TaskManager`**：持久化任务板管理（CRUD + blockedBy/blocks 依赖图 + 完成时自动清除依赖）
+- **`Task`**：任务 record，含状态（pending/in_progress/completed/cancelled）和依赖关系
+- **`TaskStore` SPI + `FileTaskStore`**：`.tasks/` 目录 JSON 文件持久化
+- **`TaskCreateTool` / `TaskUpdateTool` / `TaskListTool` / `TaskGetTool`**：任务板 CRUD 工具集
+- **`BackgroundManager`**：后台任务管理，Virtual Thread 非阻塞执行 + 完成通知队列 + 取消支持
+- **`BackgroundTask`**：后台任务状态 record（含 stdout/stderr 输出）
+- **`TaskNotification`**：完成通知 record
+- **`BackgroundNotificationHook`**：每轮 LLM 调用前 drain 通知队列，自动注入完成通知
+- **`BackgroundRunTool` / `CheckBackgroundTool`**：`background_run`（非阻塞执行）+ `check_background`（查询/取消）工具
+- **`IdentityReinjectHook`**：上下文压缩后自动注入 `<identity>` 块恢复 Agent 身份
+- **`InputSanitizer`**：输入安全检查器（长度限制 + 5 种 prompt injection 模式检测）
+- **`TrustBoundaryFilter`**：信任边界过滤器 LoopHook，检测工具输入中的注入尝试（告警/拦截可配置）
+- **8 个工具描述文件**：`sub_agent.txt` / `load_skill.txt` / `task_create.txt` / `task_update.txt` / `task_list.txt` / `task_get.txt` / `background_run.txt` / `check_background.txt`
+
+#### 上下文压缩增强（`sprinkle-claw-core`）
+- **`MicroCompactor` 多策略扩展**：去重（SHA-256 input hash，相同工具+参数保留最新）+ 错误裁剪（N 轮后清除失败工具的 input）+ 受保护工具列表
+- **`PruneCompactor` 受保护工具**：新增 `protectedTools` 参数，跳过指定工具的输出
+- **`AutoCompactor` 锚定迭代摘要**：首次全量摘要，后续增量合并（替代全量重建），通过 compaction count 追踪
+- **`ToolOutputTruncator` 大输出转文件引用**：超大工具输出（可配置阈值）写入 `.sprinkle-claw/large-outputs/`，上下文仅保留文件路径引用
+- **`TokenEstimator` jtokkit 集成**：可选依赖 `com.knuddels:jtokkit:1.1.0`，使用 CL100K_BASE 编码精确计算 token，反射加载失败时回退到字符估算
+
+#### MVP1 补丁：推理模型支持 + 能力声明
+- **`ReasoningEffort` 枚举**：LOW / MEDIUM / HIGH，映射 OpenAI `reasoning_effort` 参数
+- **`ThinkingConfig` 泛化**：新增 `reasoningEffort` 字段 + `withEffort()` 工厂方法，兼容旧双参数构造
+- **`Usage.reasoningTokens`**：新增推理 token 计数字段，兼容旧双参数构造
+- **`LlmCapabilities` record**：能力声明（`supportsReasoning` / `supportsStructuredOutput` / `contextWindowTokens` / `maxOutputTokens`）+ Builder API
+- **`LlmProvider.capabilities()`**：新增默认方法，返回 Provider 的能力声明
+- **OpenAI Provider reasoning 支持**：`buildRequestBody()` 注入 `reasoning_effort`；`parseResponse()` 解析 `completion_tokens_details.reasoning_tokens`
+- **Anthropic / OpenAI `capabilities()` 覆盖**：各 Provider 声明实际能力参数
+
+#### ClawBuilder 集成 MVP3
+- **`enableSubAgent()` / `enableSkill()` / `enableTaskBoard()` / `enableBackgroundTasks()`**：细粒度启用扩展
+- **`enableExtensions()`**：一键启用所有 agent-ext 扩展
+- **`identityPrompt(String)`**：设置 Agent 身份提示（压缩后重注入）
+- **`ExtensionRegistrar`**：classpath 检测 agent-ext 模块，自动注册扩展工具和 Hook
+
+#### AgentConfig 新增配置
+- **`enableSubAgent`** / **`subAgentMaxIterations`** / **`subAgentToolFilter`**：子 Agent 配置
+- **`enableSkill`** / **`skillsDirectory`**：Skill 加载配置
+- **`enableTaskBoard`** / **`tasksDirectory`**：任务板配置
+- **`enableBackgroundTasks`** / **`backgroundTaskTimeout`**：后台任务配置
+- **`protectedTools`**：受保护工具集合（Micro/Prune 压缩跳过）
+- **`identityPrompt`**：Agent 身份提示
+- **`largeOutputFileThreshold`**：大输出转文件引用阈值
+
+#### ToolRegistry 增强
+- **`copyWithout(Set<String>)`**：黑名单过滤，返回排除指定工具的新注册表
+- **`copyWithOnly(List<String>)`**：白名单过滤，返回仅包含指定工具的新注册表
+
+### 变更
+
+#### Javadoc 修正
+- `ThinkingBlock`：移除"仅 Anthropic 支持"标注，改为通用描述
+- `ChatRequest.thinkingConfig`：更新为"Anthropic 使用 budgetTokens，OpenAI 使用 reasoningEffort"
+
+#### 依赖变更
+- `sprinkle-claw-core` 新增可选依赖 `com.knuddels:jtokkit:1.1.0`（Token 精确估算）
+- `sprinkle-claw-bootstrap` 新增可选依赖 `sprinkle-claw-agent-ext`（classpath 存在时自动注册扩展）
+
+### 测试
+- **MicroCompactorTest**：6 个测试（去重保留最新、不同输入不去重、受保护工具不去重、错误裁剪、近期错误保留、受保护工具不替换）
+- **TokenEstimatorTest**：5 个测试（英文/中文估算、null/空处理、消息列表求和、forModel 回退）
+- **SkillLoaderTest**：9 个测试（目录扫描、多 Skill、不存在目录、内容加载、system prompt 段、frontmatter 解析错误）
+- **TaskManagerTest**：10 个测试（CRUD、依赖图、完成清除依赖、无效状态、列表/未认领、认领、阻塞认领、跨实例持久化）
+- **BackgroundManagerTest**：5 个测试（运行返回 ID、获取任务、drain 通知、取消运行中任务、列出所有任务）
+
+---
+
 ## [0.3.0] - 2026-03-27
 
 ### 新增

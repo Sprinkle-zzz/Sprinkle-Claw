@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP2-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP3-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -57,12 +57,21 @@
 | **Compact 工具** | 模型主动触发压缩，支持 focus 参数指定摘要焦点 |
 | **文件快照追踪** | Shadow Git 仓库追踪变更，Undo/Redo 支持，文件时间戳校验防止外部修改冲突 |
 | **多轮对话 API** | `chat()` 连续上下文 / `resume()` 会话恢复 / `listSessions()` 会话列表 |
+| **SubAgent 子 Agent 派生** | 隔离上下文 + 工具过滤 + 轮次限制 + 摘要返回，内置 explore/execute/plan 三种预设 |
+| **Skill 两层加载** | Layer1 system prompt 元数据注入 + Layer2 `load_skill` 按需加载全文，YAML Frontmatter 解析 |
+| **持久化任务板** | `.tasks/` JSON 持久化，blockedBy/blocks 依赖图，CRUD 工具集，压缩后存活 |
+| **后台任务管理** | `background_run` 非阻塞 Virtual Thread 执行 + 通知队列自动 drain + 取消支持 |
+| **身份重注入** | 上下文压缩后自动注入 `<identity>` 块恢复 Agent 身份 |
+| **上下文压缩增强** | MicroCompactor 去重/错误裁剪、AutoCompactor 锚定迭代摘要、受保护工具列表、大输出转文件引用 |
+| **Token 精确估算** | jtokkit CL100K_BASE tokenizer 集成（可选依赖，反射加载） |
+| **基础 Guardrails** | InputSanitizer prompt injection 检测 + TrustBoundaryFilter 信任边界过滤 |
+| **推理模型支持** | ThinkingConfig 泛化（Anthropic budgetTokens + OpenAI reasoningEffort）+ Usage.reasoningTokens |
+| **LLM 能力声明** | `LlmCapabilities` record + `LlmProvider.capabilities()` 默认方法 |
 
 ### 📋 规划中
 
 | 特性 | 目标阶段 |
 |------|---------|
-| SubAgent 隔离派生 + Skill 两层加载 | MVP3 |
 | AgentEvent 流式输出 + REST / SSE / WebSocket | MVP4 |
 | @Agent 声明式 + Workflow 编排（5 种模式） | MVP5 |
 | MCP 协议适配 + Ollama 本地模型 | MVP5 |
@@ -97,8 +106,10 @@ var agent = ClawBuilder.create()
         .baseUrl("https://api.deepseek.com")
         .workdir(Path.of("."))
         .maxIterations(20)
-        .enableTodoWrite()          // MVP2: 任务管理
+        .enableTodoWrite()             // MVP2: 任务管理
         .compactionThreshold(100_000)  // MVP2: 自动压缩
+        .enableExtensions()            // MVP3: 一键启用 SubAgent/Skill/任务板/后台任务
+        .identityPrompt("你是一个 Java 架构师") // MVP3: 压缩后身份重注入
         .build();
 
 AgentResult result = agent.run("读取 pom.xml，告诉我项目用了哪些依赖");
@@ -139,7 +150,7 @@ public class MyTools {
 ├───────────────────────────┼────────────────────────────────────┤
 │  sprinkle-claw-team       │  sprinkle-claw-worktree            │  可选扩展层 (规划)
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 (规划)
+│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 (agent-ext ✅)
 ├───────────────────────────┼────────────────────────────────────┤
 │  sprinkle-claw-core       │  sprinkle-claw-bootstrap           │  核心引擎层 ✅
 ├───────────────────────────┼────────────────────────────────────┤
@@ -167,7 +178,7 @@ public class MyTools {
 | `sprinkle-claw-core` | 核心引擎：AgentLoop、ContextManager（三层压缩）、SessionManager、FileSnapshot、LoopGuard、ToolExecutor | protocol, llm-api, tool-api | ✅ 已实现 |
 | `sprinkle-claw-bootstrap` | Builder API + ServiceLoader 自动组装 + 会话管理 | 全部核心模块 | ✅ 已实现 |
 | `sprinkle-claw-benchmark` | JMH 性能基准：工具并发 / JSON 序列化 | core | ✅ 已实现 |
-| `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 | core | 📋 MVP3 |
+| `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 + Guardrails + 身份重注入 | core | ✅ 已实现 |
 | `sprinkle-claw-workflow` | @Agent 声明式 + Workflow 编排（5 种模式） | core | 📋 MVP5 |
 | `sprinkle-claw-server` | REST API + WebSocket + SSE（OpenAI 兼容） | core, bootstrap | 📋 MVP4 |
 | `sprinkle-claw-gateway` | 认证 / 限流 / 多租户 / Token 计量 | server | 📋 MVP6 |
@@ -182,13 +193,14 @@ public class MyTools {
 ```
 sprinkle-claw/
 ├── sprinkle-claw-protocol          ← 协议层（零依赖）
-├── sprinkle-claw-llm-api           ← LLM Provider SPI
+├── sprinkle-claw-llm-api           ← LLM Provider SPI + LlmCapabilities
 ├── sprinkle-claw-llm-anthropic     ← Anthropic Claude 实现
-├── sprinkle-claw-llm-openai        ← OpenAI 兼容 API 实现
+├── sprinkle-claw-llm-openai        ← OpenAI 兼容 API 实现（含推理模型支持）
 ├── sprinkle-claw-tool-api          ← 工具 SPI + @Tool 注解 + GlobToolPolicy
 ├── sprinkle-claw-tool-builtin      ← 内置工具（bash / read / write / edit / todo_write / compact）
 ├── sprinkle-claw-core              ← 核心引擎（AgentLoop + 三层压缩 + 会话管理 + 文件快照）
-├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader + 会话恢复）
+├── sprinkle-claw-agent-ext         ← Agent 扩展（SubAgent + Skill + 任务板 + 后台任务 + Guardrails）
+├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader + ExtensionRegistrar）
 └── sprinkle-claw-benchmark         ← JMH 性能基准
 ```
 
@@ -214,7 +226,7 @@ sprinkle-claw/
 |------|------|------|
 | **MVP1** | Agent Loop + 工具并发 + @Tool 注解 + ToolPolicy + 5 层回退编辑 + ToolInterception 钩子 + Doom Loop 检测 + 输出截断 + Anthropic + OpenAI 兼容 | ✅ 已完成 |
 | **MVP2** | 三层上下文压缩 + 会话持久化 + Token 估算 + TodoWrite + Compact + FileSnapshot | ✅ 已完成 |
-| **MVP3** | SubAgent（约束隔离）+ Skill 两层加载 + 持久化任务板 + 后台任务 | 📋 计划中 |
+| **MVP3** | SubAgent + Skill 两层加载 + 持久化任务板 + 后台任务 + Guardrails + 上下文压缩增强 + 推理模型支持 | ✅ 已完成 |
 | **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + REST API (OpenAI 兼容) + SSE / WebSocket | 📋 计划中 |
 | **MVP5** | Ollama Provider + @Agent 声明式 + Workflow 编排 (5 模式) + MCP 协议适配 | 📋 计划中 |
 | **MVP6** | 企业级网关（认证 / 限流 / 多租户 / Token 计量）+ Spring Boot Starter | 📋 计划中 |
