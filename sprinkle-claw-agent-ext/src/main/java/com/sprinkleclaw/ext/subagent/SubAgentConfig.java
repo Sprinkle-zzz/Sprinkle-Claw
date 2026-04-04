@@ -38,4 +38,49 @@ public record SubAgentConfig(
             true,
             ""
     );
+
+    /**
+     * 探索型子 Agent：只读工具，适合代码分析和调研。
+     * <p>限制 15 轮，5 分钟超时，排除所有写入工具。</p>
+     */
+    public static SubAgentConfig explore() {
+        return new SubAgentConfig(
+                15, Duration.ofMinutes(5),
+                List.of("write_file", "edit_file", "bash", "sub_agent"),
+                List.of(),
+                "\nYou are an exploration subagent. Read and analyze code but do not modify anything. "
+                        + "Summarize your findings concisely when done.",
+                true, ""
+        );
+    }
+
+    /**
+     * 执行型子 Agent：完整工具集，适合独立子任务执行。
+     * <p>30 轮，10 分钟超时，仅排除 sub_agent 防递归。</p>
+     */
+    public static SubAgentConfig execute() {
+        return new SubAgentConfig(
+                30, Duration.ofMinutes(10),
+                List.of("sub_agent"),
+                List.of(),
+                "\nYou are an execution subagent. Complete the assigned task independently "
+                        + "and report what you accomplished.",
+                true, ""
+        );
+    }
+
+    /**
+     * 规划型子 Agent：只读+分析，适合设计方案和架构规划。
+     * <p>限制 10 轮，5 分钟超时，排除所有执行工具。</p>
+     */
+    public static SubAgentConfig plan() {
+        return new SubAgentConfig(
+                10, Duration.ofMinutes(5),
+                List.of("bash", "write_file", "edit_file", "sub_agent"),
+                List.of(),
+                "\nYou are a planning subagent. Analyze the codebase and create a detailed "
+                        + "implementation plan. Do not execute any changes.",
+                true, ""
+        );
+    }
 }
