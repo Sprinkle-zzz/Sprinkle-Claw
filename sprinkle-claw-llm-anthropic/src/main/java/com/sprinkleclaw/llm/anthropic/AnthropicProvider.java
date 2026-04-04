@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sprinkleclaw.llm.LlmCapabilities;
 import com.sprinkleclaw.llm.LlmConfig;
 import com.sprinkleclaw.llm.LlmException;
 import com.sprinkleclaw.llm.LlmException.ErrorKind;
@@ -56,6 +57,16 @@ public final class AnthropicProvider implements LlmProvider {
     @Override
     public String providerId() {
         return "anthropic";
+    }
+
+    @Override
+    public LlmCapabilities capabilities() {
+        return LlmCapabilities.builder()
+                .supportsReasoning(true)
+                .supportsStructuredOutput(false)
+                .contextWindowTokens(200_000)
+                .maxOutputTokens(8192)
+                .build();
     }
 
     /**

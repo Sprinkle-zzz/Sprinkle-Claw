@@ -30,7 +30,9 @@ public sealed interface ContentBlock {
     }
 
     /**
-     * LLM 内部推理内容块（仅 Anthropic 支持，OpenAI 不会产生此类型）。
+     * LLM 内部推理内容块。
+     * <p>Anthropic 以 {@code thinking} content block 返回；OpenAI 推理模型通过 {@code reasoning_tokens} 计量，
+     * 推理内容不直接暴露给用户，但可通过 {@link Usage#reasoningTokens()} 获取推理 token 消耗。</p>
      *
      * @param thinking 推理/思考文本
      */

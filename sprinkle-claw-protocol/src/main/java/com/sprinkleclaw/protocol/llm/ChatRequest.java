@@ -15,7 +15,7 @@ import java.util.Optional;
  * @param maxTokens      最大生成 token 数
  * @param temperature    温度参数（控制随机性）
  * @param stopSequences  停止序列列表
- * @param thinkingConfig 思考模式配置（仅 Anthropic 支持，其他 Provider 忽略）
+ * @param thinkingConfig 思考/推理模式配置（Anthropic 使用 budgetTokens，OpenAI 使用 reasoningEffort）
  *
  * @author sprinkle
  * @since 2026/3/17
@@ -82,7 +82,7 @@ public record ChatRequest(
         }
 
         /**
-         * 设置思考模式配置（仅 Anthropic 支持）。
+         * 设置思考/推理模式配置。
          *
          * @param thinkingConfig 思考配置
          * @return 构建器自身
