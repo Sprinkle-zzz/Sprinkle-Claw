@@ -1,0 +1,6 @@
+Run a command in the background without blocking the agent loop. Returns immediately with a task ID.
+
+Parameters:
+- command (required): The shell command to execute in the background.
+
+Use this for long-running commands (builds, tests, data processing). The result will be automatically reported via notification when the command completes. Use check_background to manually check status or cancel a running task.

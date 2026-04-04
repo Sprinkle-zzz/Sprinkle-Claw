@@ -1,0 +1,5 @@
+Check the status of background tasks, or cancel a running task.
+
+Parameters:
+- task_id: The ID of a specific background task to check. If omitted, lists all background tasks.
+- cancel: If true and task_id is provided, cancel the running task. Default: false.

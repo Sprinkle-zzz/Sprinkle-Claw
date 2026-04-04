@@ -1,0 +1,4 @@
+Get the details of a specific task by its ID, including status, description, and dependency information.
+
+Parameters:
+- task_id (required): The ID of the task to retrieve.

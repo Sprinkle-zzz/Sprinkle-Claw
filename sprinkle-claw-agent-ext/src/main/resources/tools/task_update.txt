@@ -1,0 +1,8 @@
+Update the status or description of a task on the persistent task board.
+
+Parameters:
+- task_id (required): The ID of the task to update.
+- status: New task status. One of: pending, in_progress, completed, cancelled.
+- description: Updated task description.
+
+At least one of status or description must be provided. Completing a task automatically removes it from dependent tasks' blocked_by list, potentially unblocking them.
