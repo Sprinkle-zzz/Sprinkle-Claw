@@ -1,0 +1,4 @@
+List all tasks on the persistent task board, optionally filtered by status.
+
+Parameters:
+- status: Filter tasks by status. One of: pending, in_progress, completed, cancelled, all. Default: all.

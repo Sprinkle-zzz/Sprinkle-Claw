@@ -6,7 +6,7 @@
     <parent>
         <groupId>icu.sprinkle</groupId>
         <artifactId>sprinkle-claw-parent</artifactId>
-        <version>0.2.0</version>
+        <version>0.4.0</version>
     </parent>
 
     <artifactId>sprinkle-claw-core</artifactId>
@@ -37,6 +37,12 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>1.1.0</version>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>

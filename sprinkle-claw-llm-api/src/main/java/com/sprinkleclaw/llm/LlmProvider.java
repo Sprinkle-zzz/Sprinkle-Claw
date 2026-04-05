@@ -56,4 +56,14 @@ public interface LlmProvider {
     default boolean validateApiKey() {
         return true;
     }
+
+    /**
+     * 获取此提供者的能力声明。
+     * <p>默认返回保守的 {@link LlmCapabilities#DEFAULT}，实现类应覆盖以提供准确的能力信息。</p>
+     *
+     * @return 能力声明
+     */
+    default LlmCapabilities capabilities() {
+        return LlmCapabilities.DEFAULT;
+    }
 }

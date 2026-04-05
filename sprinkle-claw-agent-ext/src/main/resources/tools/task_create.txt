@@ -1,0 +1,8 @@
+Create a persistent task on the task board. Tasks survive context compression and session restarts.
+
+Parameters:
+- subject (required): Task title / short summary.
+- description: Detailed task description (optional).
+- blocked_by: List of task IDs that must be completed before this task can start. Creates a dependency graph.
+
+Use this for tracking multi-step work across conversations. Tasks with unresolved dependencies are automatically marked as blocked.

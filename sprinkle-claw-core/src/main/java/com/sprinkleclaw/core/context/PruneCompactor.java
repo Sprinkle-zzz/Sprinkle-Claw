@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Layer 1.5 裁剪压缩器：清除保护区外的旧工具输出，不调用 LLM。
@@ -19,6 +20,10 @@ import java.util.List;
  * <h3>动态阈值（v1.1）</h3>
  * <p>保护区和最小裁剪量按模型上下文窗口的比例动态计算，而非固定值。
  * 对长上下文模型（如 GPT-4.1 1M、Gemini 2.5 Pro 1M）避免过早裁剪。</p>
+ *
+ * <h3>受保护工具（MVP3 新增）</h3>
+ * <p>protectedTools 中的工具输出不会被裁剪，确保关键工具（如 load_skill）的输出
+ * 在整个对话生命周期内可用。</p>
  *
  * <h3>裁剪算法</h3>
  * <ol>
@@ -53,6 +58,7 @@ public final class PruneCompactor {
     private final int minimumPruneTokens;
     private final int protectRecentTurns;
     private final TokenEstimator tokenEstimator;
+    private final Set<String> protectedTools;
 
     /**
      * 使用显式阈值创建裁剪压缩器。
@@ -62,10 +68,24 @@ public final class PruneCompactor {
      * @param tokenEstimator     token 估算器
      */
     public PruneCompactor(int protectTokens, int minimumPruneTokens, TokenEstimator tokenEstimator) {
+        this(protectTokens, minimumPruneTokens, tokenEstimator, Set.of());
+    }
+
+    /**
+     * 使用显式阈值创建裁剪压缩器（含受保护工具列表）。
+     *
+     * @param protectTokens      保护区大小（最近 N tokens 的工具输出不裁剪）
+     * @param minimumPruneTokens 最小裁剪量（低于此值不执行裁剪）
+     * @param tokenEstimator     token 估算器
+     * @param protectedTools     受保护的工具名称集合（其输出不会被裁剪）
+     */
+    public PruneCompactor(int protectTokens, int minimumPruneTokens,
+                          TokenEstimator tokenEstimator, Set<String> protectedTools) {
         this.protectTokens = protectTokens;
         this.minimumPruneTokens = minimumPruneTokens;
         this.protectRecentTurns = 2;
         this.tokenEstimator = tokenEstimator;
+        this.protectedTools = protectedTools != null ? Set.copyOf(protectedTools) : Set.of();
     }
 
     /**
@@ -77,7 +97,20 @@ public final class PruneCompactor {
     public PruneCompactor(int modelContextWindow, TokenEstimator tokenEstimator) {
         this(computeProtectTokens(modelContextWindow),
                 computeMinPruneTokens(modelContextWindow),
-                tokenEstimator);
+                tokenEstimator, Set.of());
+    }
+
+    /**
+     * 使用动态阈值创建裁剪压缩器（含受保护工具列表）。
+     *
+     * @param modelContextWindow 模型上下文窗口大小（token 数）
+     * @param tokenEstimator     token 估算器
+     * @param protectedTools     受保护的工具名称集合
+     */
+    public PruneCompactor(int modelContextWindow, TokenEstimator tokenEstimator, Set<String> protectedTools) {
+        this(computeProtectTokens(modelContextWindow),
+                computeMinPruneTokens(modelContextWindow),
+                tokenEstimator, protectedTools);
     }
 
     /**
@@ -136,6 +169,12 @@ public final class PruneCompactor {
 
             // 处理工具结果消息
             if (msg instanceof ToolResultMessage tr) {
+                // 受保护工具跳过裁剪
+                String toolName = resolveToolName(messages, tr.toolCallId());
+                if (protectedTools.contains(toolName)) {
+                    continue;
+                }
+
                 int estimate = tokenEstimator.estimateText(tr.content());
                 totalToolTokens += estimate;
 

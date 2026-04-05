@@ -88,6 +88,12 @@ public final class ClawBuilder {
     private boolean enableTodoWrite = false;
     private int todoNagThreshold = 3;
     private boolean enableFileSnapshot = false;
+    // MVP3 extension flags
+    private boolean enableSubAgent = false;
+    private boolean enableSkill = false;
+    private boolean enableTaskBoard = false;
+    private boolean enableBackgroundTasks = false;
+    private String identityPrompt = "";
 
     ClawBuilder() {
     }
@@ -340,6 +346,57 @@ public final class ClawBuilder {
     }
 
     /**
+     * 启用子 Agent 派生（需要 sprinkle-claw-agent-ext 在 classpath）。
+     */
+    public ClawBuilder enableSubAgent() {
+        this.enableSubAgent = true;
+        return this;
+    }
+
+    /**
+     * 启用 Skill 两层加载（需要 sprinkle-claw-agent-ext 在 classpath）。
+     */
+    public ClawBuilder enableSkill() {
+        this.enableSkill = true;
+        return this;
+    }
+
+    /**
+     * 启用持久化任务板（需要 sprinkle-claw-agent-ext 在 classpath）。
+     */
+    public ClawBuilder enableTaskBoard() {
+        this.enableTaskBoard = true;
+        return this;
+    }
+
+    /**
+     * 启用后台任务管理（需要 sprinkle-claw-agent-ext 在 classpath）。
+     */
+    public ClawBuilder enableBackgroundTasks() {
+        this.enableBackgroundTasks = true;
+        return this;
+    }
+
+    /**
+     * 一键启用所有 agent-ext 扩展。
+     */
+    public ClawBuilder enableExtensions() {
+        this.enableSubAgent = true;
+        this.enableSkill = true;
+        this.enableTaskBoard = true;
+        this.enableBackgroundTasks = true;
+        return this;
+    }
+
+    /**
+     * 设置 Agent 身份描述（压缩后自动重注入，需要 sprinkle-claw-agent-ext 在 classpath）。
+     */
+    public ClawBuilder identityPrompt(String prompt) {
+        this.identityPrompt = prompt != null ? prompt : "";
+        return this;
+    }
+
+    /**
      * 构建 {@link Claw} Agent 实例。
      *
      * @return 构建好的 Agent
@@ -376,6 +433,11 @@ public final class ClawBuilder {
                 .enableTodoWrite(enableTodoWrite)
                 .todoNagThreshold(todoNagThreshold)
                 .enableFileSnapshot(enableFileSnapshot)
+                .enableSubAgent(enableSubAgent)
+                .enableSkill(enableSkill)
+                .enableTaskBoard(enableTaskBoard)
+                .enableBackgroundTasks(enableBackgroundTasks)
+                .identityPrompt(identityPrompt)
                 .build();
 
         // MVP2: 构建 FileTimestampCache 和 FileSnapshot
@@ -394,8 +456,14 @@ public final class ClawBuilder {
         context.setAttribute("fileTimestampCache", timestampCache);
         context.setAttribute("fileSnapshot", fileSnapshot);
 
+        // MVP3: 注册 agent-ext 扩展工具和 Hook
+        List<LoopHook> extensionHooks = ExtensionRegistrar.registerExtensions(
+                registry, config, provider, systemPrompt, hooks);
+        hooks.addAll(extensionHooks);
+
         ToolOutputTruncator truncator = new ToolOutputTruncator(
-                config.toolOutputMaxLines(), config.toolOutputMaxBytes(), workingDirectory);
+                config.toolOutputMaxLines(), config.toolOutputMaxBytes(),
+                config.largeOutputFileThreshold(), workingDirectory);
         ToolExecutor toolExecutor = new ToolExecutor(registry, toolPolicy, toolErrorHandler, truncator);
 
         // MVP2: 构建 ContextManager
@@ -438,17 +506,18 @@ public final class ClawBuilder {
         }
 
         TokenEstimator estimator = new TokenEstimator();
-        MicroCompactor micro = new MicroCompactor(config.microCompactKeepRecent(), estimator);
+        java.util.Set<String> protectedTools = config.protectedTools();
+        MicroCompactor micro = new MicroCompactor(config.microCompactKeepRecent(), estimator, protectedTools);
 
         PruneCompactor prune;
         if (config.pruneProtectTokens() > 0 && config.pruneMinimumTokens() > 0) {
             prune = new PruneCompactor(config.pruneProtectTokens(),
-                    config.pruneMinimumTokens(), estimator);
+                    config.pruneMinimumTokens(), estimator, protectedTools);
         } else if (config.modelContextWindow() > 0) {
-            prune = new PruneCompactor(config.modelContextWindow(), estimator);
+            prune = new PruneCompactor(config.modelContextWindow(), estimator, protectedTools);
         } else {
             // 使用默认值（假设 200K 上下文窗口）
-            prune = new PruneCompactor(200_000, estimator);
+            prune = new PruneCompactor(200_000, estimator, protectedTools);
         }
 
         Path transcriptDir = config.workingDirectory()

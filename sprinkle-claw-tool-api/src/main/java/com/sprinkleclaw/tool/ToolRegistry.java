@@ -73,4 +73,37 @@ public final class ToolRegistry {
     public int size() {
         return tools.size();
     }
+
+    /**
+     * 创建副本，排除指定名称的工具（用于 SubAgent 工具过滤）。
+     *
+     * @param excludedNames 要排除的工具名称集合
+     * @return 新的 ToolRegistry（不包含被排除的工具）
+     */
+    public ToolRegistry copyWithout(Set<String> excludedNames) {
+        ToolRegistry copy = new ToolRegistry();
+        tools.forEach((name, tool) -> {
+            if (!excludedNames.contains(name)) {
+                copy.register(tool);
+            }
+        });
+        return copy;
+    }
+
+    /**
+     * 创建副本，仅保留指定名称的工具（用于 SubAgent 白名单过滤）。
+     *
+     * @param allowedNames 允许的工具名称列表
+     * @return 新的 ToolRegistry（仅包含允许的工具）
+     */
+    public ToolRegistry copyWithOnly(List<String> allowedNames) {
+        Set<String> allowed = new java.util.HashSet<>(allowedNames);
+        ToolRegistry copy = new ToolRegistry();
+        tools.forEach((name, tool) -> {
+            if (allowed.contains(name)) {
+                copy.register(tool);
+            }
+        });
+        return copy;
+    }
 }

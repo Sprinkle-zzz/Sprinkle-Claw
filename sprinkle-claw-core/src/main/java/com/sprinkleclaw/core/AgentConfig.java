@@ -3,6 +3,7 @@ package com.sprinkleclaw.core;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Agent 运行配置，控制循环上限、超时、错误阈值、压缩策略、会话管理等。
@@ -29,6 +30,20 @@ import java.util.List;
  * @param toolOutputDynamicTruncation 工具输出截断阈值是否随上下文使用率动态调整
  * @param modelContextWindow          模型上下文窗口大小（0 表示自动从模型元数据获取）
  *
+ * <!-- MVP3 扩展字段 -->
+ * @param enableSubAgent              是否启用子 Agent 派生
+ * @param subAgentMaxIterations       子 Agent 最大循环轮次
+ * @param subAgentToolFilter          子 Agent 禁止使用的工具名（自动排除 sub_agent）
+ * @param enableSkill                 是否启用 Skill 加载
+ * @param skillsDirectory             Skill 目录路径
+ * @param enableTaskBoard             是否启用持久化任务板
+ * @param tasksDirectory              任务持久化目录
+ * @param enableBackgroundTasks       是否启用后台任务
+ * @param backgroundTaskTimeout       单个后台任务超时时间
+ * @param protectedTools              Micro/Prune 压缩时跳过这些工具的输出
+ * @param identityPrompt              压缩后重注入的身份描述（空则不启用）
+ * @param largeOutputFileThreshold    超过此大小的工具输出转为文件引用（字节）
+ *
  * @author sprinkle
  * @since 2026/3/19
  */
@@ -53,7 +68,20 @@ public record AgentConfig(
         int todoNagThreshold,
         boolean enableFileSnapshot,
         boolean toolOutputDynamicTruncation,
-        int modelContextWindow
+        int modelContextWindow,
+        // MVP3
+        boolean enableSubAgent,
+        int subAgentMaxIterations,
+        List<String> subAgentToolFilter,
+        boolean enableSkill,
+        Path skillsDirectory,
+        boolean enableTaskBoard,
+        Path tasksDirectory,
+        boolean enableBackgroundTasks,
+        Duration backgroundTaskTimeout,
+        Set<String> protectedTools,
+        String identityPrompt,
+        int largeOutputFileThreshold
 ) {
     /**
      * 默认配置。
@@ -64,7 +92,13 @@ public record AgentConfig(
             Path.of("."), List.of(),
             100_000, 3, 0, 0,
             false, Path.of(".sessions"), 5,
-            false, 3, false, true, 0
+            false, 3, false, true, 0,
+            // MVP3 defaults
+            false, 30, List.of(),
+            false, Path.of("skills"),
+            false, Path.of(".tasks"),
+            false, Duration.ofMinutes(5),
+            Set.of(), "", 100 * 1024
     );
 
     /**
@@ -99,6 +133,19 @@ public record AgentConfig(
         private boolean enableFileSnapshot = false;
         private boolean toolOutputDynamicTruncation = true;
         private int modelContextWindow = 0;
+        // MVP3
+        private boolean enableSubAgent = false;
+        private int subAgentMaxIterations = 30;
+        private List<String> subAgentToolFilter = List.of();
+        private boolean enableSkill = false;
+        private Path skillsDirectory = Path.of("skills");
+        private boolean enableTaskBoard = false;
+        private Path tasksDirectory = Path.of(".tasks");
+        private boolean enableBackgroundTasks = false;
+        private Duration backgroundTaskTimeout = Duration.ofMinutes(5);
+        private Set<String> protectedTools = Set.of();
+        private String identityPrompt = "";
+        private int largeOutputFileThreshold = 100 * 1024;
 
         private Builder() {
         }
@@ -253,6 +300,68 @@ public record AgentConfig(
             return this;
         }
 
+        // ===== MVP3 builder methods =====
+
+        public Builder enableSubAgent(boolean v) {
+            this.enableSubAgent = v;
+            return this;
+        }
+
+        public Builder subAgentMaxIterations(int v) {
+            this.subAgentMaxIterations = Math.max(1, v);
+            return this;
+        }
+
+        public Builder subAgentToolFilter(List<String> v) {
+            this.subAgentToolFilter = List.copyOf(v);
+            return this;
+        }
+
+        public Builder enableSkill(boolean v) {
+            this.enableSkill = v;
+            return this;
+        }
+
+        public Builder skillsDirectory(Path v) {
+            this.skillsDirectory = v;
+            return this;
+        }
+
+        public Builder enableTaskBoard(boolean v) {
+            this.enableTaskBoard = v;
+            return this;
+        }
+
+        public Builder tasksDirectory(Path v) {
+            this.tasksDirectory = v;
+            return this;
+        }
+
+        public Builder enableBackgroundTasks(boolean v) {
+            this.enableBackgroundTasks = v;
+            return this;
+        }
+
+        public Builder backgroundTaskTimeout(Duration v) {
+            this.backgroundTaskTimeout = v;
+            return this;
+        }
+
+        public Builder protectedTools(Set<String> v) {
+            this.protectedTools = Set.copyOf(v);
+            return this;
+        }
+
+        public Builder identityPrompt(String v) {
+            this.identityPrompt = v != null ? v : "";
+            return this;
+        }
+
+        public Builder largeOutputFileThreshold(int v) {
+            this.largeOutputFileThreshold = Math.max(0, v);
+            return this;
+        }
+
         /**
          * 构建不可变的 AgentConfig 实例。
          */
@@ -265,7 +374,13 @@ public record AgentConfig(
                     pruneProtectTokens, pruneMinimumTokens,
                     persistSessions, sessionDirectory, autoSaveInterval,
                     enableTodoWrite, todoNagThreshold, enableFileSnapshot,
-                    toolOutputDynamicTruncation, modelContextWindow
+                    toolOutputDynamicTruncation, modelContextWindow,
+                    // MVP3
+                    enableSubAgent, subAgentMaxIterations, subAgentToolFilter,
+                    enableSkill, skillsDirectory,
+                    enableTaskBoard, tasksDirectory,
+                    enableBackgroundTasks, backgroundTaskTimeout,
+                    protectedTools, identityPrompt, largeOutputFileThreshold
             );
         }
     }

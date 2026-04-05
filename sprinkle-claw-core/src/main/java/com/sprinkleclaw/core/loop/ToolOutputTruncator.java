@@ -27,6 +27,10 @@ import java.nio.file.Path;
  *   <li>使用率 &gt; 75%：10KB（紧张状态）</li>
  * </ul>
  *
+ * <h3>大输出转文件引用（MVP3 新增）</h3>
+ * <p>当输出超过 {@code largeOutputFileThreshold}（默认 100KB）时，完整输出写入文件，
+ * 上下文中不保留任何预览，仅留文件路径引用。这比截断预览更节省 token。</p>
+ *
  * @author sprinkle
  * @since 2026/3/22
  */
@@ -49,7 +53,23 @@ public final class ToolOutputTruncator {
 
     private final int maxLines;
     private final int maxBytes;
+    private final int largeOutputFileThreshold;
     private final Path truncateDir;
+    private final Path largeOutputDir;
+
+    /**
+     * @param maxLines                  最大输出行数（默认 2000）
+     * @param maxBytes                  最大输出字节数（默认 50KB）
+     * @param largeOutputFileThreshold  超过此大小的输出转为文件引用（字节，0 表示禁用）
+     * @param workingDir                工作目录（截断文件存放在其子目录下）
+     */
+    public ToolOutputTruncator(int maxLines, int maxBytes, int largeOutputFileThreshold, Path workingDir) {
+        this.maxLines = maxLines;
+        this.maxBytes = maxBytes;
+        this.largeOutputFileThreshold = largeOutputFileThreshold;
+        this.truncateDir = workingDir.resolve(".sprinkle-claw").resolve("truncated");
+        this.largeOutputDir = workingDir.resolve(".sprinkle-claw").resolve("large-outputs");
+    }
 
     /**
      * @param maxLines   最大输出行数（默认 2000）
@@ -57,9 +77,7 @@ public final class ToolOutputTruncator {
      * @param workingDir 工作目录（截断文件存放在其子目录下）
      */
     public ToolOutputTruncator(int maxLines, int maxBytes, Path workingDir) {
-        this.maxLines = maxLines;
-        this.maxBytes = maxBytes;
-        this.truncateDir = workingDir.resolve(".sprinkle-claw").resolve("truncated");
+        this(maxLines, maxBytes, 0, workingDir);
     }
 
     /**
@@ -68,7 +86,7 @@ public final class ToolOutputTruncator {
      * @param workingDir 工作目录
      */
     public ToolOutputTruncator(Path workingDir) {
-        this(2000, 50 * 1024, workingDir);
+        this(2000, 50 * 1024, 0, workingDir);
     }
 
     /**
@@ -116,7 +134,14 @@ public final class ToolOutputTruncator {
             return output;
         }
 
-        boolean exceedsBytes = output.getBytes(StandardCharsets.UTF_8).length > effectiveMaxBytes;
+        int bytes = output.getBytes(StandardCharsets.UTF_8).length;
+
+        // MVP3：超大输出转文件引用（不保留预览）
+        if (largeOutputFileThreshold > 0 && bytes > largeOutputFileThreshold) {
+            return saveAsFileReference(toolName, output, bytes);
+        }
+
+        boolean exceedsBytes = bytes > effectiveMaxBytes;
         boolean exceedsLines = countLines(output) > maxLines;
 
         if (!exceedsBytes && !exceedsLines) {
@@ -131,6 +156,48 @@ public final class ToolOutputTruncator {
                 : "\n\n[Output truncated. Use more specific queries to reduce output size]";
 
         return preview + hint;
+    }
+
+    /**
+     * 将超大输出保存到文件，返回仅含路径引用的摘要（不保留任何预览）。
+     *
+     * @param toolName 工具名称
+     * @param output   完整输出
+     * @param bytes    输出字节数
+     * @return 文件路径引用文本
+     */
+    private String saveAsFileReference(String toolName, String output, int bytes) {
+        try {
+            Files.createDirectories(largeOutputDir);
+            String filename = toolName + "_" + System.currentTimeMillis() + ".txt";
+            Path file = largeOutputDir.resolve(filename);
+            Files.writeString(file, output, StandardCharsets.UTF_8);
+
+            int lines = countLines(output);
+            log.debug("[ToolOutputTruncator] 超大输出已保存: {} ({} bytes, {} lines)", file, bytes, lines);
+
+            return "[Output saved to: " + file + "] "
+                    + "(size: " + formatBytes(bytes) + ", lines: " + lines + ")\n"
+                    + "Use read_file with offset/limit to view specific sections.";
+        } catch (IOException e) {
+            log.warn("[ToolOutputTruncator] 超大输出保存失败，降级为截断预览: {}", e.getMessage());
+            // fallback 到截断预览
+            Path savedPath = saveFullOutput(toolName, output);
+            String preview = truncate(output, maxBytes);
+            String hint = savedPath != null
+                    ? "\n\n[Output truncated. Full output saved to: " + savedPath + "]"
+                    : "\n\n[Output truncated]";
+            return preview + hint;
+        }
+    }
+
+    /**
+     * 格式化字节数为人类可读格式。
+     */
+    private static String formatBytes(int bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     /**

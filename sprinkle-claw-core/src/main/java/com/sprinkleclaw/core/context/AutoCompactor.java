@@ -26,21 +26,20 @@ import java.util.Map;
  * 使用 LLM 生成五段式结构化摘要（Goal / Instructions / Discoveries / Accomplished / Files），
  * 然后用摘要替换整个消息历史。</p>
  *
+ * <h3>MVP3 增强：锚定迭代摘要</h3>
+ * <ul>
+ *   <li><b>首次压缩</b>：全量摘要（现有逻辑不变）</li>
+ *   <li><b>后续压缩</b>：增量摘要——将前次摘要与新对话合并，保留早期关键信息</li>
+ * </ul>
+ *
  * <h3>压缩流程</h3>
  * <ol>
  *   <li>将当前完整对话历史保存到 transcript 文件（可回溯）</li>
- *   <li>构建压缩请求：完整消息 + COMPACTION_PROMPT</li>
- *   <li>调用 LLM 生成结构化摘要（maxTokens = 4000）</li>
- *   <li>替换消息历史为：[User: "[Conversation compressed]\n\n{summary}"] + [Assistant: "Understood..."]</li>
+ *   <li>检测是否存在前次摘要（判断首条消息是否为压缩标记）</li>
+ *   <li>首次：全量摘要；后续：增量摘要（包含前次摘要 + 新对话）</li>
+ *   <li>替换消息历史为：[User: "{marker}\n\n{summary}"] + [Assistant: "Understood..."]</li>
  *   <li>回放最后一条用户消息（确保模型知道当前任务）</li>
  * </ol>
- *
- * <h3>错误处理</h3>
- * <ul>
- *   <li>LLM 调用失败：记录错误日志，跳过压缩（不阻断主循环）</li>
- *   <li>摘要为空：使用 fallback 占位文本</li>
- *   <li>Transcript 写入失败：仅日志警告，不阻断压缩</li>
- * </ul>
  *
  * @author sprinkle
  * @since 2026/3/24
@@ -54,29 +53,66 @@ public final class AutoCompactor {
             Focus on information that would be helpful for continuing the conversation,
             including what we did, what we're doing, which files we're working on,
             and what we're going to do next.
-            
+
             When constructing the summary, stick to this template:
             ---
             ## Goal
             [What goal(s) is the user trying to accomplish?]
-            
+
             ## Instructions
             - [What important instructions did the user give you that are relevant]
             - [If there is a plan or spec, include information about it]
-            
+
             ## Discoveries
             [What notable things were learned during this conversation]
-            
+
             ## Accomplished
             [What work has been completed, what work is still in progress, and what is left?]
-            
+
             ## Relevant files / directories
             [Structured list of relevant files that have been read, edited, or created]
             ---""";
 
+    private static final String INCREMENTAL_COMPACTION_PROMPT = """
+            Below is a previous conversation summary followed by new conversation content.
+
+            PREVIOUS SUMMARY:
+            %s
+
+            NEW CONVERSATION:
+            %s
+
+            Create an updated summary by merging the previous summary with new information.
+            Rules:
+            1. Keep all important information from the previous summary
+            2. Add new discoveries, completed work, and file changes from the new conversation
+            3. Remove information that has been superseded (e.g., a file was edited again)
+            4. Follow this template:
+            ---
+            ## Goal
+            [Updated goal(s)]
+
+            ## Instructions
+            - [All relevant instructions, both old and new]
+
+            ## Discoveries
+            [All notable discoveries, both old and new]
+
+            ## Accomplished
+            [Complete list of accomplished work, marking what's new]
+
+            ## Relevant files / directories
+            [Updated file list with current state]
+            ---""";
+
     private static final String FALLBACK_SUMMARY = "[Conversation compressed - summary generation failed]";
-    private static final String COMPRESSION_MARKER = "[Conversation compressed]";
+    private static final String COMPRESSION_MARKER = "[Conversation compressed";
     private static final String ACK_TEXT = "Understood. Continuing with compressed context.";
+
+    /**
+     * AgentContext attributes 中的压缩次数计数器键。
+     */
+    private static final String COMPACTION_COUNT_KEY = "__auto_compaction_count";
 
     private final LlmProvider llm;
     private final TokenEstimator tokenEstimator;
@@ -99,6 +135,7 @@ public final class AutoCompactor {
 
     /**
      * 执行 LLM 摘要压缩。
+     * <p>首次压缩使用全量摘要，后续压缩使用增量摘要（锚定迭代）。</p>
      *
      * @param context Agent 上下文
      * @return 压缩结果；LLM 调用失败时返回 null（不阻断主循环）
@@ -114,10 +151,24 @@ public final class AutoCompactor {
         // 2. 查找最后一条用户消息用于回放
         UserMessage lastUserMsg = findLastUserMessage(messages);
 
-        // 3. 调用 LLM 生成摘要
+        // 3. 检测是否存在前次摘要（增量 vs 全量）
+        String previousSummary = findPreviousSummary(messages);
+
+        // 4. 更新压缩计数器
+        Integer compactionCount = context.getAttribute(COMPACTION_COUNT_KEY);
+        int count = (compactionCount != null) ? compactionCount + 1 : 1;
+        context.setAttribute(COMPACTION_COUNT_KEY, count);
+
+        // 5. 生成摘要
         String summary;
         try {
-            summary = generateSummary(messages);
+            if (previousSummary != null) {
+                summary = generateIncrementalSummary(messages, previousSummary);
+                log.debug("[AutoCompactor] 使用增量摘要模式（第 {} 次压缩）", count);
+            } else {
+                summary = generateSummary(messages);
+                log.debug("[AutoCompactor] 使用全量摘要模式（首次压缩）");
+            }
         } catch (Exception e) {
             log.error("[AutoCompactor] LLM 摘要生成失败，跳过压缩", e);
             return null;
@@ -127,13 +178,14 @@ public final class AutoCompactor {
             summary = FALLBACK_SUMMARY;
         }
 
-        // 4. 替换消息历史
+        // 6. 替换消息历史
         List<Message> newMessages = new ArrayList<>();
-        newMessages.add(UserMessage.of(COMPRESSION_MARKER + "\n\n" + summary));
+        newMessages.add(UserMessage.of(
+                COMPRESSION_MARKER + " (iteration " + count + ")]\n\n" + summary));
         newMessages.add(new AssistantMessage(
                 List.of(new ContentBlock.TextBlock(ACK_TEXT)), null));
 
-        // 5. 回放最后一条用户消息
+        // 7. 回放最后一条用户消息
         if (lastUserMsg != null) {
             newMessages.add(lastUserMsg);
         }
@@ -143,8 +195,8 @@ public final class AutoCompactor {
 
         int tokensAfter = tokenEstimator.estimate(context.mutableMessages());
 
-        log.info("[AutoCompactor] LLM 摘要压缩完成，{} → {} tokens，摘要 {} tokens",
-                tokensBefore, tokensAfter, tokenEstimator.estimateText(summary));
+        log.info("[AutoCompactor] LLM 摘要压缩完成（第 {} 次），{} → {} tokens，摘要 {} tokens",
+                count, tokensBefore, tokensAfter, tokenEstimator.estimateText(summary));
 
         return new CompactionResult(
                 CompactionResult.CompactionType.AUTO,
@@ -152,10 +204,9 @@ public final class AutoCompactor {
     }
 
     /**
-     * 调用 LLM 生成对话摘要。
+     * 调用 LLM 生成全量对话摘要。
      */
     private String generateSummary(List<Message> messages) {
-        // 将 COMPACTION_PROMPT 作为最后一条用户消息追加
         List<Message> requestMessages = new ArrayList<>(messages);
         requestMessages.add(UserMessage.of(COMPACTION_PROMPT));
 
@@ -167,6 +218,83 @@ public final class AutoCompactor {
 
         ChatResponse response = llm.chat(request);
         return response.textContent();
+    }
+
+    /**
+     * 调用 LLM 生成增量摘要（将前次摘要与新对话合并）。
+     */
+    private String generateIncrementalSummary(List<Message> messages, String previousSummary) {
+        // 提取新对话部分（前次摘要之后的所有消息）
+        String newConversation = extractNewConversation(messages);
+
+        String prompt = String.format(INCREMENTAL_COMPACTION_PROMPT,
+                previousSummary, newConversation);
+
+        ChatRequest request = ChatRequest.builder()
+                .messages(List.of(UserMessage.of(prompt)))
+                .maxTokens(summaryMaxTokens)
+                .temperature(0.0)
+                .build();
+
+        ChatResponse response = llm.chat(request);
+        return response.textContent();
+    }
+
+    /**
+     * 检测消息列表中是否存在前次压缩摘要。
+     *
+     * @return 前次摘要内容，不存在时返回 null
+     */
+    private String findPreviousSummary(List<Message> messages) {
+        if (messages.isEmpty()) return null;
+        Message first = messages.getFirst();
+        if (first instanceof UserMessage um) {
+            String text = extractTextFromBlocks(um.content());
+            if (text.startsWith(COMPRESSION_MARKER)) {
+                // 提取摘要内容（跳过 header 行）
+                int headerEnd = text.indexOf("]\n\n");
+                return headerEnd >= 0 ? text.substring(headerEnd + 3) : null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 提取前次摘要之后的新对话内容。
+     */
+    private String extractNewConversation(List<Message> messages) {
+        // 跳过前两条消息（压缩摘要 + ACK），剩余都是新对话
+        int startIndex = 0;
+        if (messages.size() >= 2) {
+            Message first = messages.getFirst();
+            if (first instanceof UserMessage um) {
+                String text = extractTextFromBlocks(um.content());
+                if (text.startsWith(COMPRESSION_MARKER)) {
+                    startIndex = 2; // 跳过摘要 + ACK
+                }
+            }
+        }
+
+        var sb = new StringBuilder();
+        for (int i = startIndex; i < messages.size(); i++) {
+            Message msg = messages.get(i);
+            Map<String, Object> serialized = serializeMessage(msg);
+            sb.append(serialized.get("role")).append(": ").append(serialized.get("content")).append("\n\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 从内容块列表中提取纯文本。
+     */
+    private static String extractTextFromBlocks(List<ContentBlock> blocks) {
+        var sb = new StringBuilder();
+        for (ContentBlock block : blocks) {
+            if (block instanceof ContentBlock.TextBlock tb) {
+                sb.append(tb.text());
+            }
+        }
+        return sb.toString();
     }
 
     /**
@@ -185,9 +313,6 @@ public final class AutoCompactor {
 
     /**
      * 将完整消息历史序列化并保存到 transcript 文件。
-     *
-     * <p>文件路径：{transcriptDir}/{sessionId}_{compactionIndex}.json</p>
-     * <p>写入失败仅记录警告日志，不阻断压缩流程。</p>
      */
     private void saveTranscript(AgentContext context) {
         try {
@@ -209,8 +334,6 @@ public final class AutoCompactor {
 
     /**
      * 将 transcript 数据序列化为简单 JSON 格式。
-     * <p>MVP2 使用简单字符串拼接避免引入额外 JSON 库依赖，
-     * MVP3 可替换为 Jackson/Gson。</p>
      */
     private static String serializeTranscript(AgentContext context, int compactionIndex) {
         var sb = new StringBuilder();

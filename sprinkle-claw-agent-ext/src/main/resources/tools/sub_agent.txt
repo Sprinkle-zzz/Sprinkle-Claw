@@ -1,0 +1,14 @@
+Spawn a sub-agent to handle a specific task independently. The sub-agent runs with its own isolated context (no access to current conversation history) and returns a text summary when done.
+
+Use this for:
+- Tasks that can be handled independently without current conversation context
+- Exploratory analysis or focused research
+- Parallel sub-task execution that should not pollute the main context
+
+Parameters:
+- task (required): Detailed description of the task. Include all necessary context since the sub-agent cannot see the current conversation.
+- tools: Optional list of tool names the sub-agent is allowed to use. If empty, inherits the parent's tool set (minus sub_agent itself).
+- max_iterations: Maximum loop iterations for the sub-agent. Default: 30.
+- model: Optional model override (e.g., a faster/cheaper model for simple tasks). If empty, inherits the parent's model.
+
+The sub-agent's full context is discarded after execution; only the summary is returned.

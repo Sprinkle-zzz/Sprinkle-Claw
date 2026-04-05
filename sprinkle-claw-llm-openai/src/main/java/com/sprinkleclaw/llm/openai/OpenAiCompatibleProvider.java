@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sprinkleclaw.llm.LlmCapabilities;
 import com.sprinkleclaw.llm.LlmConfig;
 import com.sprinkleclaw.llm.LlmException;
 import com.sprinkleclaw.llm.LlmException.ErrorKind;
@@ -66,6 +67,16 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
         return "openai";
     }
 
+    @Override
+    public LlmCapabilities capabilities() {
+        return LlmCapabilities.builder()
+                .supportsReasoning(true)
+                .supportsStructuredOutput(true)
+                .contextWindowTokens(128_000)
+                .maxOutputTokens(16_384)
+                .build();
+    }
+
     /**
      * 发送聊天请求到 OpenAI 兼容 API。
      * <p>请求格式遵循 OpenAI Chat Completions API 规范。</p>
@@ -126,6 +137,13 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
         for (Message msg : request.messages()) {
             convertMessage(msg, messagesArray);
         }
+
+        // 推理模式支持
+        request.thinkingConfig().ifPresent(tc -> {
+            if (tc.enabled() && tc.reasoningEffort() != null) {
+                root.put("reasoning_effort", tc.reasoningEffort().value());
+            }
+        });
 
         if (!request.tools().isEmpty()) {
             ArrayNode toolsArray = root.putArray("tools");
@@ -245,7 +263,8 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
             int inputTokens = root.at("/usage/prompt_tokens").asInt(0);
             int outputTokens = root.at("/usage/completion_tokens").asInt(0);
-            Usage usage = new Usage(inputTokens, outputTokens);
+            int reasoningTokens = root.at("/usage/completion_tokens_details/reasoning_tokens").asInt(0);
+            Usage usage = new Usage(inputTokens, outputTokens, reasoningTokens);
 
             String modelId = root.has("model") ? root.get("model").asText() : "";
 

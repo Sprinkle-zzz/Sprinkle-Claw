@@ -1,0 +1,6 @@
+Load the full content of a skill by name. Skills are listed in the <skills> section of your system prompt with a brief description. Use this tool when you need the detailed instructions for a specific task.
+
+Parameters:
+- name (required): The name of the skill to load (as shown in the system prompt).
+
+Skills are loaded on demand (Layer 2) to avoid bloating the system prompt with unused instructions.
