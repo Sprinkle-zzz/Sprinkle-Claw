@@ -4,11 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.sprinkleclaw.llm.LlmCapabilities;
-import com.sprinkleclaw.llm.LlmConfig;
-import com.sprinkleclaw.llm.LlmException;
+import com.sprinkleclaw.llm.*;
 import com.sprinkleclaw.llm.LlmException.ErrorKind;
-import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.protocol.llm.*;
 import com.sprinkleclaw.protocol.message.ContentBlock;
 import com.sprinkleclaw.protocol.message.Message;
@@ -22,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
+import java.util.stream.Stream;
 
 /**
  * OpenAI Chat Completions API 兼容的 {@link LlmProvider} 实现。
@@ -118,13 +116,151 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
     }
 
     /**
+     * 流式调用 OpenAI 兼容 API，逐 token 回调。
+     */
+    @Override
+    public ChatResponse streamChat(ChatRequest request, StreamCallback callback) throws LlmException {
+        try {
+            String body = buildRequestBody(request, true);
+            log.debug("发送流式请求到 OpenAI 兼容 API: {}", baseUrl);
+
+            HttpRequest.Builder httpBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/chat/completions"))
+                    .header("Authorization", "Bearer " + config.apiKey())
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .timeout(config.timeout());
+
+            for (Map.Entry<String, String> h : config.headers().entrySet()) {
+                httpBuilder.header(h.getKey(), h.getValue());
+            }
+
+            HttpResponse<Stream<String>> httpResponse =
+                    httpClient.send(httpBuilder.build(), HttpResponse.BodyHandlers.ofLines());
+
+            if (httpResponse.statusCode() >= 400) {
+                String errorBody = String.join("\n", httpResponse.body().toList());
+                handleHttpErrorWithStatus(httpResponse.statusCode(), errorBody);
+            }
+
+            var collector = new OpenAiResponseCollector();
+            var sseParser = new SseLineParser();
+
+            httpResponse.body().forEach(line -> {
+                SseLineParser.SseEvent sseEvent = sseParser.feed(line);
+                if (sseEvent == null || sseEvent.isDone()) return;
+
+                try {
+                    dispatchSseEvent(sseEvent, collector, callback);
+                } catch (Exception e) {
+                    log.warn("处理 SSE 事件异常: {}", e.getMessage());
+                }
+            });
+
+            return collector.build();
+
+        } catch (LlmException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new LlmException(ErrorKind.NETWORK_ERROR, "Stream error: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new LlmException(ErrorKind.TIMEOUT, "Stream interrupted", e);
+        } catch (Exception e) {
+            throw new LlmException(ErrorKind.UNKNOWN, "Stream error: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 分发 OpenAI SSE 事件。
+     */
+    private void dispatchSseEvent(SseLineParser.SseEvent sseEvent,
+                                   OpenAiResponseCollector collector,
+                                   StreamCallback callback) throws Exception {
+        JsonNode data = objectMapper.readTree(sseEvent.data());
+
+        // 提取 model
+        if (data.has("model")) {
+            collector.setModelId(data.get("model").asText());
+        }
+
+        // 提取 usage（OpenAI 在最后一个 chunk 中返回 usage）
+        JsonNode usageNode = data.get("usage");
+        if (usageNode != null && !usageNode.isNull()) {
+            collector.setUsage(
+                    usageNode.path("prompt_tokens").asInt(0),
+                    usageNode.path("completion_tokens").asInt(0),
+                    usageNode.path("completion_tokens_details").path("reasoning_tokens").asInt(0));
+        }
+
+        // 提取 choices[0]
+        JsonNode choices = data.get("choices");
+        if (choices == null || !choices.isArray() || choices.isEmpty()) return;
+        JsonNode choice = choices.get(0);
+
+        // finish_reason
+        JsonNode finishReason = choice.get("finish_reason");
+        if (finishReason != null && !finishReason.isNull()) {
+            collector.setFinishReason(finishReason.asText());
+        }
+
+        // delta
+        JsonNode delta = choice.get("delta");
+        if (delta == null) return;
+
+        // 文本内容
+        JsonNode contentNode = delta.get("content");
+        if (contentNode != null && !contentNode.isNull()) {
+            String content = contentNode.asText();
+            callback.onToken(content);
+            collector.appendContent(content);
+        }
+
+        // tool_calls delta
+        JsonNode toolCallsNode = delta.get("tool_calls");
+        if (toolCallsNode != null && toolCallsNode.isArray()) {
+            for (JsonNode tc : toolCallsNode) {
+                int index = tc.get("index").asInt();
+                String id = tc.has("id") ? tc.get("id").asText() : null;
+                JsonNode funcNode = tc.get("function");
+                String name = null;
+                String argsDelta = null;
+                if (funcNode != null) {
+                    name = funcNode.has("name") ? funcNode.get("name").asText() : null;
+                    argsDelta = funcNode.has("arguments") ? funcNode.get("arguments").asText() : null;
+                }
+                collector.appendToolCall(index, id, name, argsDelta);
+                if (argsDelta != null) {
+                    callback.onToolUseInput(
+                            collector.getToolCallId(index),
+                            collector.getToolCallName(index),
+                            argsDelta);
+                }
+            }
+        }
+    }
+
+    /**
      * 将 Protocol ChatRequest 转换为 OpenAI Chat Completions 请求体。
      */
     private String buildRequestBody(ChatRequest request) {
+        return buildRequestBody(request, false);
+    }
+
+    /**
+     * 将 Protocol ChatRequest 转换为 OpenAI Chat Completions 请求体。
+     */
+    private String buildRequestBody(ChatRequest request, boolean stream) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", config.model());
         root.put("max_tokens", request.maxTokens());
         root.put("temperature", request.temperature());
+
+        if (stream) {
+            root.put("stream", true);
+            // 请求流式 usage（OpenAI 需要显式设置）
+            root.putObject("stream_options").put("include_usage", true);
+        }
 
         ArrayNode messagesArray = root.putArray("messages");
 
@@ -291,6 +427,18 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
     /**
      * 处理 HTTP 错误响应。
      */
+    private void handleHttpErrorWithStatus(int status, String body) {
+        String message = "HTTP " + status + ": " + extractErrorMessage(body);
+        ErrorKind kind = switch (status) {
+            case 401 -> ErrorKind.AUTH_ERROR;
+            case 429 -> ErrorKind.RATE_LIMIT;
+            case 400 -> ErrorKind.INVALID_REQUEST;
+            case 500, 502, 503 -> ErrorKind.SERVER_ERROR;
+            default -> ErrorKind.UNKNOWN;
+        };
+        throw new LlmException(kind, message);
+    }
+
     private void handleHttpError(HttpResponse<String> response) {
         int status = response.statusCode();
         if (status >= 200 && status < 300) {
