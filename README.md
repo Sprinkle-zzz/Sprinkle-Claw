@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP3-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP4-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -66,12 +66,22 @@
 | **基础 Guardrails**        | InputSanitizer prompt injection 检测 + TrustBoundaryFilter 信任边界过滤                           |
 | **推理模型支持**               | ThinkingConfig 泛化（Anthropic budgetTokens + OpenAI reasoningEffort）+ Usage.reasoningTokens |
 | **LLM 能力声明**             | `LlmCapabilities` record + `LlmProvider.capabilities()` 默认方法                              |
+| **AgentEvent 流式输出**      | 15 种事件 sealed interface + `runStreaming()` 返回 `Flow.Publisher` + SSE 适配（含 Last-Event-ID replay） |
+| **LLM SSE 流式**           | Anthropic / OpenAI 兼容双实现，thinking + tool_use delta 增量累积，StreamCallback 回调分发              |
+| **引擎韧性框架**               | 13 种错误分类 × 8 种恢复策略矩阵（重试/降级/压缩重试/截断重试/输出升级/挂起），FallbackProvider 主备切换                  |
+| **工具行为标记**               | `isReadOnly` / `isConcurrencySafe` / `riskLevel` SPI + `@Tool` 注解扩展，内置工具分级声明                |
+| **并发分级执行**               | `ConcurrencyAwareToolExecutor` 安全工具并行 + 非安全工具串行，保持原始顺序                                    |
+| **预处理管线**                | `LoopPreProcessor` 5 阶段统一管线：Budget → Micro → Prune → Auto → NotificationDrain           |
+| **工具定义稳定排序**             | `ToolDefinitionSorter` 内置工具固定序 + 外部按名排序，提升 LLM prompt cache 命中率                           |
+| **内容哈希校验**               | `ContentHashValidator` SHA-256 双重校验，过滤云盘同步 mtime 误报                                       |
+| **组件状态持久化**              | `StatePersistable` SPI + `StateManager` 收集/恢复（仅 dirty 组件）                                 |
+| **HITL 异步审批**            | `ApprovalManager` SDK 回调 + Server 端点 `resolve()` 双模式，CompletableFuture 阻塞虚拟线程              |
+| **Hook 优先级**             | `LoopHook.priority()` + `HookManager` 排序执行 + Skip 短路                                      |
 
 ### 📋 规划中
 
 | 特性 | 目标阶段 |
 |------|---------|
-| AgentEvent 流式输出 + 引擎韧性（错误恢复/Fallback/工具分级） | MVP4 |
 | @Agent 声明式 + Workflow 编排（5 种模式） | MVP5 |
 | MCP 协议适配 + Ollama 本地模型 | MVP5 |
 | REST/SSE/WebSocket（OpenAI 兼容）+ Spring Boot Starter + 企业级网关 | MVP6 |
@@ -223,7 +233,7 @@ sprinkle-claw/
 | **MVP1** | Agent Loop + 工具并发 + @Tool 注解 + ToolPolicy + 5 层回退编辑 + ToolInterception 钩子 + Doom Loop 检测 + 输出截断 + Anthropic + OpenAI 兼容 | ✅ 已完成 |
 | **MVP2** | 三层上下文压缩 + 会话持久化 + Token 估算 + TodoWrite + Compact + FileSnapshot | ✅ 已完成 |
 | **MVP3** | SubAgent + Skill 两层加载 + 持久化任务板 + 后台任务 + Guardrails + 上下文压缩增强 + 推理模型支持 | ✅ 已完成 |
-| **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + 引擎韧性（错误恢复 / Fallback / 工具分级 / Hook 增强） | 📋 计划中 |
+| **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + 引擎韧性（错误恢复 / Fallback / 工具分级 / Hook 增强）+ 状态持久化 + HITL 审批 | ✅ 已完成 |
 | **MVP5** | Ollama Provider + @Agent 声明式 + Workflow 编排 (5 模式) + MCP 协议适配 | 📋 计划中 |
 | **MVP6** | REST/SSE/WebSocket（OpenAI 兼容）+ Spring Boot Starter + 企业级网关（认证/限流/多租户） | 📋 计划中 |
 | **MVP7** | Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离（实验性） | 📋 计划中 |

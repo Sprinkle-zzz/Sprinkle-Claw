@@ -28,6 +28,7 @@ replay_pid*
 *.iml
 .vscode/
 .cursor/
+.claude/
 
 # Maven
 target/

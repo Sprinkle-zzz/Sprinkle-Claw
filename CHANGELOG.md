@@ -5,6 +5,91 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.5.0] - 2026-04-11
+
+### 新增
+
+#### 流式输出（AgentEvent + LLM SSE）
+- **`AgentEvent` sealed interface**：15 种事件 record —— `LlmToken` / `LlmThinkingToken` / `LlmCallStart` / `LlmCallEnd` / `ToolStart` / `ToolEnd` / `Compaction` / `IterationComplete` / `AgentComplete` / `AgentError` / `ErrorRecovered` / `FallbackActivated` / `SessionResumed` / `ApprovalRequired` / `ApprovalResolved`
+- **`StreamCallback` SPI**：流式回调接口，包含 `onToken` / `onThinkingToken` / `onToolUseInput` / `onContentBlockStart` / `onContentBlockStop` 五个方法
+- **`LlmProvider.streamChat()`**：默认方法签名，支持流式请求分发
+- **Anthropic SSE 流式实现**：`SseLineParser`（多行 data 拼接）+ `AnthropicResponseCollector`（增量 → ChatResponse 累积）+ thinking/tool_use delta 分发
+- **OpenAI 兼容 SSE 流式实现**：`SseLineParser`（`[DONE]` 哨兵检测）+ `OpenAiResponseCollector`（delta 累积）+ 并行 tool_calls 支持
+- **`AgentLoop.runStreaming()`**：返回 `Flow.Publisher<AgentEvent>`，`SubmissionPublisher(256, DROP_OLDEST)` + 虚拟线程运行循环，StreamCallback 桥接事件发射
+- **`Claw.runStreaming()`**：委托方法，返回流式事件 Publisher
+- **`SseEventAdapter`**：`AgentEvent` → SSE 格式字符串，单调递增 id + Last-Event-ID replay 支持
+
+#### 引擎韧性框架
+- **`ErrorType` 枚举**：13 种错误类型（`RATE_LIMIT` / `AUTH_FAILED` / `CONTEXT_OVERFLOW` / `MODEL_UNAVAILABLE` / `NETWORK_ERROR` / `TIMEOUT` / `INVALID_REQUEST` / `TOOL_EXECUTION` / `OUTPUT_TRUNCATED` / `STREAM_IDLE` / `INTERRUPTED` / `INTERNAL_ERROR` / `UNKNOWN`）
+- **`ErrorClassifier` SPI + `DefaultErrorClassifier`**：HTTP 状态码映射 + errorCode/message 模式匹配，识别 Anthropic / OpenAI 错误响应
+- **`ErrorRecovery` sealed interface**：8 种恢复策略（`Retry` / `Abort` / `Fallback` / `CompactAndRetry` / `TruncateAndRetry` / `EscalateOutput` / `Suspend` / `Ignore`）
+- **`ErrorRecoveryMatrix`**：错误类型 × 尝试次数 → 恢复策略决策矩阵，含指数退避、降级切换、压缩重试等
+- **`RecoveryContext` record**：attempt / hasFallbackModel / retryAfter / failureReason 恢复决策上下文
+- **`ResilienceConfig` record**：韧性配置（maxRetries / baseBackoff / maxBackoff / fallbackThreshold / idleTimeout）
+- **`FallbackProvider`**：主/备 LLM Provider 包装，consecutiveFailures 计数 + 阈值触发自动切换 + 恢复窗口
+- **`MaxOutputTokensEscalator`**：工具输出截断时三级 maxOutputTokens 升级（4096 → 8192 → 16384）
+- **`StreamIdleWatchdog` + `StreamIdleTimeoutException`**：SSE 空闲超时检测（默认 90s），防止流式请求永久挂起
+- **`InterruptContext` record**：中断上下文，记录中断原因与 Suspend 恢复数据
+- **`LoopTrace` record**：结构化迭代记录（attempt / error / recoveryAction / duration）
+- **`HookManager`**：按 `LoopHook.priority()` 排序执行，Skip 短路所有后续 Hook
+
+#### 工具行为标记与预处理管线
+- **`RiskLevel` 枚举**：LOW / MEDIUM / HIGH，用于 HITL 审批分级
+- **`AgentTool` 默认方法**：`isReadOnly()` / `isConcurrencySafe()` / `riskLevel()` 行为声明
+- **`@Tool` 注解扩展**：新增 `readOnly` / `concurrencySafe` / `riskLevel` 属性
+- **`AnnotatedToolAdapter`**：读取新注解属性并映射为 AgentTool 行为方法
+- **内置工具行为声明**：`ReadFileTool` / `WriteFileTool` / `EditFileTool` / `BashTool` / `TodoWriteTool` / `CompactTool` 分别标注读写性、并发安全性与风险等级
+- **`ConcurrencyAwareToolExecutor`**：工具调用分区执行 —— concurrencySafe 工具并行（虚拟线程）+ 非安全工具串行，IndexedCall/IndexedResult 保持原始顺序
+- **`ToolDefinitionSorter`**：Partition-Sort 工具定义稳定排序（内置工具固定序 + 外部工具按名），提升 LLM prompt cache 命中率
+- **`LoopPreProcessor`**：5 阶段统一预处理管线 —— ToolResultBudget → MicroCompact → PruneCompact → AutoCompact → NotificationDrain
+- **`PreProcessReport` record**：预处理报告（MicroCompactResult / CompactResult / 总耗时 / 节省 token）+ Builder
+- **`ContentHashValidator`**：SHA-256 双重校验文件外部修改，mtime 快速路径 + size check + 内容哈希，过滤云盘同步 mtime 误报
+
+#### 状态持久化 SPI
+- **`StatePersistable` 接口**：通用组件状态持久化 SPI（`stateId` / `saveState` / `restoreState` / `isDirty`）
+- **`StateManager`**：组件注册表 + `collectStates()` 仅收集 dirty 组件 + `restoreAll()` 分发状态，CopyOnWriteArrayList 并发安全
+
+#### HITL 异步审批
+- **`ApprovalRequest` record**：审批请求（requestId / toolName / input / description / riskLevel / timestamp / timeout），默认 5 分钟超时
+- **`ApprovalResponse` record**：审批响应（approved / reason / modifiedInput / respondedAt）+ 静态工厂 `approve` / `approveWithModifiedInput` / `deny` / `timeout`
+- **`ApprovalCallback` 函数式接口**：SDK 嵌入模式审批逻辑自定义
+- **`ApprovalManager`**：双模式审批管理 —— SDK 嵌入模式（虚拟线程中回调）+ Server 模式（`resolve()` 外部端点），CompletableFuture 阻塞虚拟线程 + 超时自动拒绝
+
+#### AgentConfig 新增配置
+- **`resilienceConfig`**：引擎韧性配置（默认 `ResilienceConfig.DEFAULT`）
+- **`enableFallback`**：是否启用 Fallback 模型降级
+
+#### LoopHook 增强
+- **`priority()` 默认方法**：Hook 执行优先级（低值高优先，默认 100）
+
+### 变更
+
+#### AnthropicProvider / OpenAiCompatibleProvider
+- 新增 `streamChat()` 实现：`stream=true` + `BodyHandlers.ofLines()` + SseLineParser + Collector，thinking/tool_use delta 实时分发到 StreamCallback
+
+#### AgentLoop 流程增强
+- 错误处理路径重构：`ErrorClassifier` → `ErrorRecoveryMatrix` → 恢复策略执行（重试 / 降级 / 压缩重试 / 截断重试 / 输出升级 / 挂起）
+- 新增 `runStreaming()` 虚拟线程循环 + StreamCallback 事件发射
+
+### 测试
+- **SseLineParserTest (Anthropic)**：11 个测试（简单事件、默认事件类型、多行 data、注释、reset、连续事件）
+- **AnthropicResponseCollectorTest**：8 个测试（文本累积、tool_use、thinking、unfinalizedBlocks、stopReason 映射、无效 JSON 回退）
+- **SseLineParserTest (OpenAI)**：7 个测试（`[DONE]` 哨兵检测）
+- **OpenAiResponseCollectorTest**：9 个测试（并行 tool calls、文本+工具组合、finishReason 映射、null content 处理）
+- **SseEventAdapterTest**：10 个测试（SSE 格式输出、单调 id、Last-Event-ID replay、日志 trim）
+- **DefaultErrorClassifierTest**：HTTP 状态码映射覆盖
+- **ErrorRecoveryMatrixTest**：12 种错误类型 × 不同重试次数
+- **FallbackProviderTest**：主模型失败 N 次后切换备用 + 恢复窗口
+- **HookManagerTest**：priority 排序 + Skip 短路
+- **ToolDefinitionSorterTest**：9 个测试（幂等排序验证）
+- **PreProcessReportTest**：8 个测试
+- **ContentHashValidatorTest**：8 个测试（mtime-only 变更 false、内容变更 true、size check 跳过 hash）
+- **ToolBehaviorMarkersTest**：6 个测试
+- **StateManagerTest**：8 个测试
+- **ApprovalManagerTest**：7 个测试（callback 批准 / 拒绝 / 修改输入、超时拒绝、外部 resolve、回调异常）
+
+---
+
 ## [0.4.0] - 2026-04-04
 
 ### 新增
