@@ -4,12 +4,14 @@ import com.sprinkleclaw.core.AgentResult;
 import com.sprinkleclaw.core.ToolExecution;
 import com.sprinkleclaw.core.context.AgentContext;
 import com.sprinkleclaw.core.context.ContextManager;
+import com.sprinkleclaw.core.loop.event.AgentEvent;
 import com.sprinkleclaw.core.session.SessionManager;
 import com.sprinkleclaw.core.observability.AgentMetrics;
 import com.sprinkleclaw.core.observability.AgentTracer;
 import com.sprinkleclaw.core.observability.NoopAgentMetrics;
 import com.sprinkleclaw.core.observability.NoopAgentTracer;
 import com.sprinkleclaw.llm.LlmProvider;
+import com.sprinkleclaw.llm.StreamCallback;
 import com.sprinkleclaw.protocol.llm.ChatRequest;
 import com.sprinkleclaw.protocol.llm.ChatResponse;
 import com.sprinkleclaw.protocol.llm.StopReason;
@@ -24,6 +26,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Flow;
+import java.util.concurrent.SubmissionPublisher;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 核心 Agent 执行循环。
@@ -304,6 +310,232 @@ public final class AgentLoop {
 
         return buildResult(lastTextOutput, lastStopReason, iteration,
                 totalInputTokens, totalOutputTokens, allToolExecutions, start);
+    }
+
+    /**
+     * 流式运行 Agent 循环，返回 {@link Flow.Publisher} 逐步推送 {@link AgentEvent}。
+     * <p>内部启动虚拟线程运行循环，通过 {@link SubmissionPublisher} 发射事件。
+     * 使用 {@link LlmProvider#streamChat} 获取流式 token。</p>
+     *
+     * @return 事件发布者
+     * @since 0.5.0 (MVP4)
+     */
+    public Flow.Publisher<AgentEvent> runStreaming() {
+        var publisher = new SubmissionPublisher<AgentEvent>(
+                Executors.newVirtualThreadPerTaskExecutor(),
+                256,
+                (subscriber, event) -> log.warn("丢弃事件（消费者过慢）: {}", event.getClass().getSimpleName())
+        );
+
+        Thread.ofVirtual().name("agent-loop-streaming").start(() -> {
+            try {
+                runStreamingLoop(publisher);
+            } catch (Exception e) {
+                publisher.submit(AgentEvent.agentError(e, AgentEvent.ErrorPhase.LLM_CALL));
+            } finally {
+                publisher.close();
+            }
+        });
+
+        return publisher;
+    }
+
+    /**
+     * 流式循环内部实现。
+     */
+    private void runStreamingLoop(SubmissionPublisher<AgentEvent> publisher) {
+        Instant start = Instant.now();
+        int iteration = 0;
+        int totalInputTokens = 0;
+        int totalOutputTokens = 0;
+        List<ToolExecution> allToolExecutions = new ArrayList<>();
+        StopReason lastStopReason = StopReason.END_TURN;
+        String lastTextOutput = "";
+        var tokenIndex = new AtomicInteger(0);
+
+        ToolContext toolContext = new ToolContext(
+                context.config().workingDirectory(), context.mutableAttributes());
+
+        try {
+            while (true) {
+                iteration++;
+                try {
+                    guard.checkIteration(iteration);
+                } catch (LoopGuard.LoopExhaustedException e) {
+                    log.warn("循环保护触发: {}", e.getMessage());
+                    break;
+                }
+
+                context.setAttribute(TodoReminderHook.ROUND_USED_TODO_WRITE_KEY, false);
+
+                if (contextManager != null) {
+                    contextManager.compactIfNeeded(context);
+                }
+
+                final int iter = iteration;
+                hooks.forEach(h -> h.preLlmCall(context, iter));
+
+                ChatRequest request = ChatRequest.builder()
+                        .systemPrompt(context.effectiveSystemPrompt())
+                        .messages(context.messages())
+                        .tools(context.toolDefinitions())
+                        .build();
+
+                publisher.submit(new AgentEvent.LlmCallStart(Instant.now(), iteration));
+                Instant llmStart = Instant.now();
+
+                // 流式回调桥接 AgentEvent
+                ChatResponse response;
+                try {
+                    tokenIndex.set(0);
+                    response = llmProvider.streamChat(request, new StreamCallback() {
+                        @Override
+                        public void onToken(String token) {
+                            publisher.submit(new AgentEvent.LlmToken(
+                                    Instant.now(), token, tokenIndex.getAndIncrement()));
+                        }
+
+                        @Override
+                        public void onThinkingToken(String token) {
+                            publisher.submit(new AgentEvent.ThinkingToken(
+                                    Instant.now(), token, tokenIndex.getAndIncrement()));
+                        }
+
+                        @Override
+                        public void onToolUseInput(String toolUseId, String toolName, String inputChunk) {
+                            publisher.submit(new AgentEvent.ToolInputChunk(
+                                    Instant.now(), toolUseId, toolName, inputChunk));
+                        }
+                    });
+                } catch (Exception e) {
+                    publisher.submit(AgentEvent.agentError(e, AgentEvent.ErrorPhase.LLM_CALL));
+                    AgentErrorHandler.ErrorDecision decision = errorHandler.handle(context, e, iter);
+                    switch (decision) {
+                        case AgentErrorHandler.ErrorDecision.Abort abort -> {
+                            return;
+                        }
+                        case AgentErrorHandler.ErrorDecision.Retry retry -> {
+                            guard.recordError();
+                            context.appendUserMessage(retry.injectedMessage());
+                            continue;
+                        }
+                        case AgentErrorHandler.ErrorDecision.Ignore() -> {
+                            continue;
+                        }
+                    }
+                }
+
+                Duration llmDuration = Duration.between(llmStart, Instant.now());
+
+                guard.recordResponse(response);
+
+                if (response.usage() != null) {
+                    totalInputTokens += response.usage().inputTokens();
+                    totalOutputTokens += response.usage().outputTokens();
+                    context.updateTokenUsage(response.usage());
+
+                    publisher.submit(new AgentEvent.LlmCallEnd(Instant.now(), iteration,
+                            response.usage().inputTokens(), response.usage().outputTokens()));
+                }
+
+                final int currentIteration = iteration;
+                hooks.forEach(h -> h.postLlmCall(context, response, currentIteration));
+
+                context.appendAssistantMessage(response);
+
+                lastStopReason = response.stopReason();
+                lastTextOutput = response.textContent();
+
+                if (response.stopReason() != StopReason.TOOL_USE || response.toolCalls().isEmpty()) {
+                    publisher.submit(new AgentEvent.IterationComplete(
+                            Instant.now(), iteration, response.stopReason()));
+                    break;
+                }
+
+                // 工具执行（与 run() 相同逻辑，增加事件发射）
+                List<ToolUseBlock> toolCalls = response.toolCalls();
+                List<ToolUseBlock> approvedCalls = new ArrayList<>();
+                List<ToolResult> skippedResults = new ArrayList<>();
+
+                for (ToolUseBlock call : toolCalls) {
+                    if (guard.checkToolLoop(call.name(), call.input())) {
+                        skippedResults.add(ToolResult.error(call.name(),
+                                "Doom loop detected: tool '" + call.name()
+                                        + "' called repeatedly with same arguments. "
+                                        + "Try a different approach.").withCallId(call.id()));
+                        continue;
+                    }
+
+                    ToolInterception interception = ToolInterception.CONTINUE;
+                    for (LoopHook hook : hooks) {
+                        interception = hook.beforeToolExecution(context, call);
+                        if (interception instanceof ToolInterception.Skip) break;
+                    }
+
+                    switch (interception) {
+                        case ToolInterception.Skip s -> skippedResults.add(ToolResult.error(call.name(),
+                                "Skipped: " + s.reason()).withCallId(call.id()));
+                        case ToolInterception.Modify m ->
+                                approvedCalls.add(new ToolUseBlock(call.id(), call.name(), m.modifiedInput()));
+                        default -> approvedCalls.add(call);
+                    }
+                }
+
+                // 发射工具开始/结束事件
+                for (ToolUseBlock call : approvedCalls) {
+                    publisher.submit(new AgentEvent.ToolStart(
+                            Instant.now(), call.name(), call.id(), call.input()));
+                }
+
+                int effectiveMaxBytes = -1;
+                if (context.config().toolOutputDynamicTruncation()
+                        && context.modelContextWindow() > 0) {
+                    effectiveMaxBytes = ToolOutputTruncator.computeMaxOutputBytes(
+                            context, context.modelContextWindow());
+                }
+                Instant toolStart = Instant.now();
+                ToolExecutor.ExecutionResult execResult =
+                        toolExecutor.executeAll(approvedCalls, toolContext, effectiveMaxBytes);
+
+                allToolExecutions.addAll(execResult.executions());
+
+                for (var exec : execResult.executions()) {
+                    publisher.submit(new AgentEvent.ToolEnd(
+                            Instant.now(), exec.toolName(), exec.toolCallId(),
+                            !exec.isError(), exec.duration()));
+                }
+
+                List<ToolResult> allResults = new ArrayList<>(skippedResults);
+                allResults.addAll(execResult.results());
+                context.appendToolResults(allResults);
+
+                boolean usedTodoWrite = approvedCalls.stream()
+                        .anyMatch(c -> "todo_write".equals(c.name()));
+                if (usedTodoWrite) {
+                    context.setAttribute(TodoReminderHook.ROUND_USED_TODO_WRITE_KEY, true);
+                }
+
+                final int postToolIteration = iteration;
+                hooks.forEach(h -> h.postToolExecution(context, postToolIteration));
+
+                publisher.submit(new AgentEvent.IterationComplete(
+                        Instant.now(), iteration, StopReason.TOOL_USE));
+
+                if (sessionManager != null) {
+                    sessionManager.autoSaveIfNeeded(context, iteration);
+                }
+            }
+        } finally {
+            if (sessionManager != null) {
+                sessionManager.save(context);
+            }
+            final int finalIteration = iteration;
+            hooks.forEach(h -> h.onLoopEnd(context, finalIteration));
+        }
+
+        AgentResult result = buildResult(lastTextOutput, lastStopReason, iteration,
+                totalInputTokens, totalOutputTokens, allToolExecutions, start);
+        publisher.submit(AgentEvent.agentComplete(result));
     }
 
     /**

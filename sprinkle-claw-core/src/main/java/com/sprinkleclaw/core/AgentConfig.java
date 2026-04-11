@@ -1,5 +1,7 @@
 package com.sprinkleclaw.core;
 
+import com.sprinkleclaw.core.loop.resilience.ResilienceConfig;
+
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -29,8 +31,12 @@ import java.util.Set;
  * @param enableFileSnapshot          是否启用文件快照追踪
  * @param toolOutputDynamicTruncation 工具输出截断阈值是否随上下文使用率动态调整
  * @param modelContextWindow          模型上下文窗口大小（0 表示自动从模型元数据获取）
- *
- * <!-- MVP3 扩展字段 -->
+ *                                    <p>
+ *                                    <!-- MVP4 韧性字段 -->
+ * @param resilienceConfig            引擎韧性配置
+ * @param enableFallback              是否启用 Fallback 模型降级
+ *                                    <p>
+ *                                    <!-- MVP3 扩展字段 -->
  * @param enableSubAgent              是否启用子 Agent 派生
  * @param subAgentMaxIterations       子 Agent 最大循环轮次
  * @param subAgentToolFilter          子 Agent 禁止使用的工具名（自动排除 sub_agent）
@@ -69,6 +75,9 @@ public record AgentConfig(
         boolean enableFileSnapshot,
         boolean toolOutputDynamicTruncation,
         int modelContextWindow,
+        // MVP4
+        ResilienceConfig resilienceConfig,
+        boolean enableFallback,
         // MVP3
         boolean enableSubAgent,
         int subAgentMaxIterations,
@@ -93,6 +102,8 @@ public record AgentConfig(
             100_000, 3, 0, 0,
             false, Path.of(".sessions"), 5,
             false, 3, false, true, 0,
+            // MVP4 defaults
+            ResilienceConfig.DEFAULT, false,
             // MVP3 defaults
             false, 30, List.of(),
             false, Path.of("skills"),
@@ -133,6 +144,9 @@ public record AgentConfig(
         private boolean enableFileSnapshot = false;
         private boolean toolOutputDynamicTruncation = true;
         private int modelContextWindow = 0;
+        // MVP4
+        private ResilienceConfig resilienceConfig = ResilienceConfig.DEFAULT;
+        private boolean enableFallback = false;
         // MVP3
         private boolean enableSubAgent = false;
         private int subAgentMaxIterations = 30;
@@ -300,6 +314,24 @@ public record AgentConfig(
             return this;
         }
 
+        // ===== MVP4 builder methods =====
+
+        /**
+         * 设置引擎韧性配置。
+         */
+        public Builder resilienceConfig(ResilienceConfig v) {
+            this.resilienceConfig = v != null ? v : ResilienceConfig.DEFAULT;
+            return this;
+        }
+
+        /**
+         * 设置是否启用 Fallback 模型降级。
+         */
+        public Builder enableFallback(boolean v) {
+            this.enableFallback = v;
+            return this;
+        }
+
         // ===== MVP3 builder methods =====
 
         public Builder enableSubAgent(boolean v) {
@@ -375,6 +407,8 @@ public record AgentConfig(
                     persistSessions, sessionDirectory, autoSaveInterval,
                     enableTodoWrite, todoNagThreshold, enableFileSnapshot,
                     toolOutputDynamicTruncation, modelContextWindow,
+                    // MVP4
+                    resilienceConfig, enableFallback,
                     // MVP3
                     enableSubAgent, subAgentMaxIterations, subAgentToolFilter,
                     enableSkill, skillsDirectory,
