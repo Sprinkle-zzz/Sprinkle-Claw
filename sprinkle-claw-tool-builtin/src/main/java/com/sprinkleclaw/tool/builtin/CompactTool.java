@@ -3,6 +3,7 @@ package com.sprinkleclaw.tool.builtin;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import com.sprinkleclaw.protocol.tool.ToolResult;
 import com.sprinkleclaw.tool.AgentTool;
+import com.sprinkleclaw.tool.RiskLevel;
 import com.sprinkleclaw.tool.ToolContext;
 
 import java.util.LinkedHashMap;
@@ -58,4 +59,7 @@ public final class CompactTool implements AgentTool {
         return ToolResult.success(name(),
                 "Compression scheduled. It will be executed before the next LLM call.");
     }
+
+    @Override
+    public RiskLevel riskLevel() { return RiskLevel.LOW; }
 }

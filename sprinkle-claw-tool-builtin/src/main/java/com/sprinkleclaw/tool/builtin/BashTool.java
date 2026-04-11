@@ -3,6 +3,7 @@ package com.sprinkleclaw.tool.builtin;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import com.sprinkleclaw.protocol.tool.ToolResult;
 import com.sprinkleclaw.tool.AgentTool;
+import com.sprinkleclaw.tool.RiskLevel;
 import com.sprinkleclaw.tool.ToolContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -108,4 +109,7 @@ public final class BashTool implements AgentTool {
             return ToolResult.error(name(), "Error: " + e.getMessage());
         }
     }
+
+    @Override
+    public RiskLevel riskLevel() { return RiskLevel.HIGH; }
 }

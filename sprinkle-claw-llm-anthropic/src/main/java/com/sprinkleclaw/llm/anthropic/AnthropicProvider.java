@@ -4,11 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.sprinkleclaw.llm.LlmCapabilities;
-import com.sprinkleclaw.llm.LlmConfig;
-import com.sprinkleclaw.llm.LlmException;
+import com.sprinkleclaw.llm.*;
 import com.sprinkleclaw.llm.LlmException.ErrorKind;
-import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.protocol.llm.*;
 import com.sprinkleclaw.protocol.message.ContentBlock;
 import com.sprinkleclaw.protocol.message.Message;
@@ -22,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
+import java.util.stream.Stream;
 
 /**
  * Anthropic Claude API 的 {@link LlmProvider} 实现。
@@ -108,12 +106,169 @@ public final class AnthropicProvider implements LlmProvider {
     }
 
     /**
+     * 流式调用 Anthropic API，逐 token 回调。
+     */
+    @Override
+    public ChatResponse streamChat(ChatRequest request, StreamCallback callback) throws LlmException {
+        try {
+            String body = buildRequestBody(request, true);
+            log.debug("发送流式请求到 Anthropic API");
+
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/v1/messages"))
+                    .header("x-api-key", config.apiKey())
+                    .header("anthropic-version", API_VERSION)
+                    .header("content-type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .timeout(config.timeout())
+                    .build();
+
+            HttpResponse<Stream<String>> httpResponse =
+                    httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines());
+
+            if (httpResponse.statusCode() >= 400) {
+                // 读取所有行拼接为错误 body
+                String errorBody = String.join("\n",
+                        httpResponse.body().toList());
+                handleHttpErrorWithStatus(httpResponse.statusCode(), errorBody);
+            }
+
+            var collector = new AnthropicResponseCollector();
+            var sseParser = new SseLineParser();
+
+            httpResponse.body().forEach(line -> {
+                SseLineParser.SseEvent sseEvent = sseParser.feed(line);
+                if (sseEvent == null) return;
+
+                try {
+                    dispatchSseEvent(sseEvent, collector, callback);
+                } catch (Exception e) {
+                    log.warn("处理 SSE 事件异常: {}", e.getMessage());
+                }
+            });
+
+            return collector.build();
+
+        } catch (LlmException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new LlmException(ErrorKind.NETWORK_ERROR, "Stream error: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new LlmException(ErrorKind.TIMEOUT, "Stream interrupted", e);
+        } catch (Exception e) {
+            throw new LlmException(ErrorKind.UNKNOWN, "Stream error: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 分发 SSE 事件到 collector 和 callback。
+     */
+    private void dispatchSseEvent(SseLineParser.SseEvent sseEvent,
+                                   AnthropicResponseCollector collector,
+                                   StreamCallback callback) throws Exception {
+        String eventType = sseEvent.event();
+        JsonNode data = objectMapper.readTree(sseEvent.data());
+
+        switch (eventType) {
+            case "message_start" -> {
+                JsonNode usage = data.at("/message/usage");
+                collector.setInputTokens(usage.path("input_tokens").asInt(0));
+                collector.setMessageId(data.at("/message/id").asText(""));
+                collector.setModelId(data.at("/message/model").asText(""));
+            }
+
+            case "content_block_start" -> {
+                int index = data.get("index").asInt();
+                JsonNode block = data.get("content_block");
+                String type = block.get("type").asText();
+                callback.onContentBlockStart(index, type);
+
+                if ("tool_use".equals(type)) {
+                    collector.startToolUse(index,
+                            block.get("id").asText(),
+                            block.get("name").asText());
+                } else {
+                    collector.startContentBlock(index, type);
+                }
+            }
+
+            case "content_block_delta" -> {
+                int index = data.get("index").asInt();
+                JsonNode delta = data.get("delta");
+                String deltaType = delta.get("type").asText();
+
+                switch (deltaType) {
+                    case "text_delta" -> {
+                        String text = delta.get("text").asText();
+                        callback.onToken(text);
+                        collector.appendText(text);
+                    }
+                    case "thinking_delta" -> {
+                        String thinking = delta.get("thinking").asText();
+                        callback.onThinkingToken(thinking);
+                        collector.appendThinking(thinking);
+                    }
+                    case "input_json_delta" -> {
+                        String partial = delta.get("partial_json").asText();
+                        callback.onToolUseInput(
+                                collector.currentToolUseId(index),
+                                collector.currentToolName(index),
+                                partial);
+                        collector.appendToolInput(index, partial);
+                    }
+                }
+            }
+
+            case "content_block_stop" -> {
+                int index = data.get("index").asInt();
+                callback.onContentBlockStop(index);
+                collector.finalizeContentBlock(index);
+            }
+
+            case "message_delta" -> {
+                JsonNode delta = data.get("delta");
+                if (delta != null && delta.has("stop_reason")) {
+                    collector.setStopReason(delta.get("stop_reason").asText());
+                }
+                JsonNode usage = data.get("usage");
+                if (usage != null && usage.has("output_tokens")) {
+                    collector.setOutputTokens(usage.get("output_tokens").asInt());
+                }
+            }
+
+            case "error" -> {
+                String errorType = data.at("/error/type").asText("unknown");
+                String errorMsg = data.at("/error/message").asText("Unknown error");
+                throw new LlmException(ErrorKind.SERVER_ERROR,
+                        "Stream error [" + errorType + "]: " + errorMsg);
+            }
+
+            case "ping", "message_stop" -> {
+                // 心跳和消息结束，不需要处理
+                collector.markHeartbeat();
+            }
+        }
+    }
+
+    /**
      * 将 Protocol ChatRequest 转换为 Anthropic 请求 JSON 字符串。
      */
     private String buildRequestBody(ChatRequest request) {
+        return buildRequestBody(request, false);
+    }
+
+    /**
+     * 将 Protocol ChatRequest 转换为 Anthropic 请求 JSON 字符串。
+     */
+    private String buildRequestBody(ChatRequest request, boolean stream) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", config.model());
         root.put("max_tokens", request.maxTokens());
+
+        if (stream) {
+            root.put("stream", true);
+        }
 
         if (!request.systemPrompt().isEmpty()) {
             root.put("system", request.systemPrompt());
@@ -249,6 +404,21 @@ public final class AnthropicProvider implements LlmProvider {
             case "stop_sequence" -> StopReason.STOP_SEQUENCE;
             default -> StopReason.END_TURN;
         };
+    }
+
+    /**
+     * 处理流式请求的 HTTP 错误。
+     */
+    private void handleHttpErrorWithStatus(int status, String body) {
+        String message = "HTTP " + status + ": " + extractErrorMessage(body);
+        ErrorKind kind = switch (status) {
+            case 401 -> ErrorKind.AUTH_ERROR;
+            case 429 -> ErrorKind.RATE_LIMIT;
+            case 400 -> ErrorKind.INVALID_REQUEST;
+            case 500, 502, 503 -> ErrorKind.SERVER_ERROR;
+            default -> ErrorKind.UNKNOWN;
+        };
+        throw new LlmException(kind, message);
     }
 
     /**

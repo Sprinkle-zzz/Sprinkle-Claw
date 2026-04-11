@@ -22,6 +22,23 @@ import com.sprinkleclaw.protocol.message.ContentBlock.ToolUseBlock;
 public interface LoopHook {
 
     /**
+     * Hook 执行优先级。低值高优先。
+     * <p>建议范围：
+     * <ul>
+     *   <li>0-49   : 框架内置 Hook（安全检查、预处理等）</li>
+     *   <li>50-99  : 高优先级用户 Hook</li>
+     *   <li>100    : 默认优先级</li>
+     *   <li>101-199: 低优先级用户 Hook</li>
+     *   <li>200+   : 审计/日志类 Hook</li>
+     * </ul>
+     *
+     * @return 优先级值
+     */
+    default int priority() {
+        return 100;
+    }
+
+    /**
      * 在发送消息给 LLM 之前调用。
      *
      * @param context   当前上下文

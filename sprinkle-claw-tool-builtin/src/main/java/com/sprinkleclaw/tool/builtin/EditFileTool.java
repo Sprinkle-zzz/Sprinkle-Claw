@@ -413,4 +413,7 @@ public final class EditFileTool implements AgentTool {
         }
         return sb.toString();
     }
+
+    @Override
+    public boolean isConcurrencySafe() { return true; }
 }

@@ -1,5 +1,7 @@
 package com.sprinkleclaw.tool.annotation;
 
+import com.sprinkleclaw.tool.RiskLevel;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -29,4 +31,19 @@ public @interface Tool {
      * 工具超时时间（秒），默认 120 秒。
      */
     int timeoutSeconds() default 120;
+
+    /**
+     * 该工具是否只读（不修改文件系统、数据库等外部状态）。
+     */
+    boolean readOnly() default false;
+
+    /**
+     * 该工具是否并发安全（多实例并行执行不会互相干扰）。
+     */
+    boolean concurrencySafe() default false;
+
+    /**
+     * 工具的风险等级。
+     */
+    RiskLevel riskLevel() default RiskLevel.MEDIUM;
 }

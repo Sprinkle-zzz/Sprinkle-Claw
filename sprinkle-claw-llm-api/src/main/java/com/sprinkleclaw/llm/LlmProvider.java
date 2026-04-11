@@ -66,4 +66,23 @@ public interface LlmProvider {
     default LlmCapabilities capabilities() {
         return LlmCapabilities.DEFAULT;
     }
+
+    /**
+     * 流式调用 LLM，逐 token 回调。
+     * <p>默认实现为非流式 fallback：调用 {@link #chat(ChatRequest)} 后一次性回调全部内容。
+     * 支持流式的 Provider 应覆盖此方法以提供真正的流式体验。</p>
+     *
+     * @param request  聊天请求
+     * @param callback 流式回调
+     * @return LLM 完整响应（流式结束后组装）
+     * @throws LlmException 当请求失败时抛出
+     */
+    default ChatResponse streamChat(ChatRequest request, StreamCallback callback) {
+        ChatResponse response = chat(request);
+        String text = response.textContent();
+        if (text != null && !text.isEmpty()) {
+            callback.onToken(text);
+        }
+        return response;
+    }
 }
