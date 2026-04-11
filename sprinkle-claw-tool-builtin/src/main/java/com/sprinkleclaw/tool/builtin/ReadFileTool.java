@@ -3,6 +3,7 @@ package com.sprinkleclaw.tool.builtin;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import com.sprinkleclaw.protocol.tool.ToolResult;
 import com.sprinkleclaw.tool.AgentTool;
+import com.sprinkleclaw.tool.RiskLevel;
 import com.sprinkleclaw.tool.ToolContext;
 
 import java.io.IOException;
@@ -82,4 +83,13 @@ public final class ReadFileTool implements AgentTool {
             return ToolResult.error(name(), "Error reading file: " + e.getMessage());
         }
     }
+
+    @Override
+    public boolean isReadOnly() { return true; }
+
+    @Override
+    public boolean isConcurrencySafe() { return true; }
+
+    @Override
+    public RiskLevel riskLevel() { return RiskLevel.LOW; }
 }

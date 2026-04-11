@@ -3,6 +3,7 @@ package com.sprinkleclaw.tool.builtin;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import com.sprinkleclaw.protocol.tool.ToolResult;
 import com.sprinkleclaw.tool.AgentTool;
+import com.sprinkleclaw.tool.RiskLevel;
 import com.sprinkleclaw.tool.ToolContext;
 
 import java.util.ArrayList;
@@ -107,4 +108,10 @@ public final class TodoWriteTool implements AgentTool {
         }
         return result;
     }
+
+    @Override
+    public boolean isConcurrencySafe() { return true; }
+
+    @Override
+    public RiskLevel riskLevel() { return RiskLevel.LOW; }
 }

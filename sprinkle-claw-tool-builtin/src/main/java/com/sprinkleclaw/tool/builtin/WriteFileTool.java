@@ -3,6 +3,7 @@ package com.sprinkleclaw.tool.builtin;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import com.sprinkleclaw.protocol.tool.ToolResult;
 import com.sprinkleclaw.tool.AgentTool;
+import com.sprinkleclaw.tool.RiskLevel;
 import com.sprinkleclaw.tool.ToolContext;
 
 import java.io.IOException;
@@ -89,4 +90,7 @@ public final class WriteFileTool implements AgentTool {
             return ToolResult.error(name(), "Error writing file: " + e.getMessage());
         }
     }
+
+    @Override
+    public boolean isConcurrencySafe() { return true; }
 }
