@@ -38,4 +38,36 @@ public interface AgentTool {
     default String name() {
         return definition().name();
     }
+
+    // ===== MVP4 行为标记（default 方法，不破坏兼容性） =====
+
+    /**
+     * 该工具是否只读（不修改文件系统、数据库等外部状态）。
+     * <p>只读工具可以安全地并行执行。默认 false（fail-closed：未声明的工具视为有副作用）。</p>
+     *
+     * @return 只读返回 true
+     */
+    default boolean isReadOnly() {
+        return false;
+    }
+
+    /**
+     * 该工具是否并发安全（多实例并行执行不会互相干扰）。
+     * <p>例如：多个 read_file 并行是安全的，但多个 bash 可能不安全。
+     * 默认 false（fail-closed）。</p>
+     *
+     * @return 并发安全返回 true
+     */
+    default boolean isConcurrencySafe() {
+        return false;
+    }
+
+    /**
+     * 工具的风险等级，影响 {@link ToolPolicy} 的默认决策和审计日志级别。
+     *
+     * @return 风险等级
+     */
+    default RiskLevel riskLevel() {
+        return RiskLevel.MEDIUM;
+    }
 }

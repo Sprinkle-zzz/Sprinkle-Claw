@@ -3,6 +3,7 @@ package com.sprinkleclaw.tool.annotation;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import com.sprinkleclaw.protocol.tool.ToolResult;
 import com.sprinkleclaw.tool.AgentTool;
+import com.sprinkleclaw.tool.RiskLevel;
 import com.sprinkleclaw.tool.ToolContext;
 
 import java.lang.reflect.Method;
@@ -23,11 +24,18 @@ public final class AnnotatedToolAdapter implements AgentTool {
     private final Object instance;
     private final Method method;
     private final ToolDefinition definition;
+    private final boolean readOnly;
+    private final boolean concurrencySafe;
+    private final RiskLevel risk;
 
-    private AnnotatedToolAdapter(Object instance, Method method, ToolDefinition definition) {
+    private AnnotatedToolAdapter(Object instance, Method method, ToolDefinition definition,
+                                 boolean readOnly, boolean concurrencySafe, RiskLevel risk) {
         this.instance = instance;
         this.method = method;
         this.definition = definition;
+        this.readOnly = readOnly;
+        this.concurrencySafe = concurrencySafe;
+        this.risk = risk;
     }
 
     /**
@@ -45,7 +53,8 @@ public final class AnnotatedToolAdapter implements AgentTool {
                 String name = annotation.name().isEmpty() ? method.getName() : annotation.name();
                 Map<String, Object> schema = SchemaGenerator.generateSchema(method);
                 ToolDefinition def = ToolDefinition.of(name, annotation.description(), schema);
-                tools.add(new AnnotatedToolAdapter(toolHolder, method, def));
+                tools.add(new AnnotatedToolAdapter(toolHolder, method, def,
+                        annotation.readOnly(), annotation.concurrencySafe(), annotation.riskLevel()));
             }
         }
         return tools;
@@ -137,5 +146,20 @@ public final class AnnotatedToolAdapter implements AgentTool {
             return false;
         }
         return null;
+    }
+
+    @Override
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    @Override
+    public boolean isConcurrencySafe() {
+        return concurrencySafe;
+    }
+
+    @Override
+    public RiskLevel riskLevel() {
+        return risk;
     }
 }
