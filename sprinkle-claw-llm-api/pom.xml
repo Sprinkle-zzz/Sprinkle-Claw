@@ -18,5 +18,9 @@
             <groupId>icu.sprinkle</groupId>
             <artifactId>sprinkle-claw-protocol</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
     </dependencies>
 </project>
