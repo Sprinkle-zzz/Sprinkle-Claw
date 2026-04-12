@@ -64,6 +64,9 @@ public final class AnthropicProvider implements LlmProvider {
                 .supportsStructuredOutput(false)
                 .contextWindowTokens(200_000)
                 .maxOutputTokens(8192)
+                .supportsToolChoice(true)
+                .supportsStreaming(true)
+                .supportsToolUse(true)
                 .build();
     }
 
@@ -287,6 +290,9 @@ public final class AnthropicProvider implements LlmProvider {
                 toolNode.put("description", tool.description());
                 toolNode.set("input_schema", objectMapper.valueToTree(tool.inputSchema()));
             }
+
+            // toolChoice 序列化：AUTO → 省略；REQUIRED → any；NONE → none；Forced → {type: "tool", name}
+            serializeToolChoice(request.toolChoice(), root);
         }
 
         return root.toString();
@@ -390,6 +396,32 @@ public final class AnthropicProvider implements LlmProvider {
 
         } catch (Exception e) {
             throw new LlmException(ErrorKind.UNKNOWN, "Failed to parse response: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 将 Protocol ToolChoice 序列化为 Anthropic tool_choice JSON 字段。
+     * <p>映射规则：AUTO → 省略；REQUIRED → {type: "any"}；NONE → {type: "none"}；
+     * Forced(name) → {type: "tool", name: name}。</p>
+     */
+    private void serializeToolChoice(ChatRequest.ToolChoice toolChoice, ObjectNode root) {
+        switch (toolChoice) {
+            case ChatRequest.ToolChoice.Auto ignored -> {
+                // AUTO 时省略 tool_choice 字段，Anthropic 默认行为即 auto
+            }
+            case ChatRequest.ToolChoice.None ignored -> {
+                ObjectNode tc = root.putObject("tool_choice");
+                tc.put("type", "none");
+            }
+            case ChatRequest.ToolChoice.Required ignored -> {
+                ObjectNode tc = root.putObject("tool_choice");
+                tc.put("type", "any");
+            }
+            case ChatRequest.ToolChoice.Forced f -> {
+                ObjectNode tc = root.putObject("tool_choice");
+                tc.put("type", "tool");
+                tc.put("name", f.toolName());
+            }
         }
     }
 
