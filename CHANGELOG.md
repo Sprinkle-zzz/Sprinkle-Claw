@@ -5,6 +5,61 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.6.0] - 2026-04-13
+
+### 新增
+
+#### ToolChoice 策略与能力声明
+- **`ToolChoice` sealed interface**：4 种策略 —— `Auto` / `None` / `Required` / `Forced(toolName)`，嵌入 `ChatRequest` 作为可选策略字段
+- **`LlmCapabilities` 扩展**：新增 `supportsToolChoice` / `supportsStreaming` / `supportsToolUse` 三个布尔能力声明，保留 4 参数向后兼容构造器
+- **Anthropic / OpenAI Provider**：实现 `serializeToolChoice()` 将策略映射为各自 API 格式
+
+#### Ollama 本地 LLM 提供者 (`sprinkle-claw-llm-ollama`)
+- **`OllamaProvider`**：实现 `LlmProvider` SPI，支持同步 `/api/chat` 调用
+- **`OllamaStreamParser`**：NDJSON 流消费（非 SSE），支持 `StreamCallback` token/工具回调
+- **`OllamaCapabilityRegistry`**：已知模型能力查表（Llama 3.x / Qwen 2.5 / Mistral / DeepSeek 等），标签剥离 + 未知模型保守默认值
+- **`OllamaToolBridge`**：Prompt 注入式工具调用降级 —— 将工具 Schema 注入系统提示词，解析围栏/裸 JSON 响应提取工具调用
+- **`OllamaProtocolMapper`**：请求/响应序列化 —— 工具、选项、keepAlive 映射
+- **`OllamaHttpClient`**：JDK HttpClient 封装 `/api/chat` 和 `/api/tags` 端点
+- **`OllamaConfig` record**：host / model / keepAlive / numCtx / timeout + Builder + `from(LlmConfig)` 工厂
+- **`OllamaProviderFactory`**：SPI 工厂，`supports("ollama")` 自动发现
+
+#### 声明式 Agent 与工作流编排 (`sprinkle-claw-workflow`)
+- **`@Agent` 注解 + `AgentFactory`**：接口代理模式 —— `@Agent(model, temperature)` + `@UserMessage` + `@SystemPrompt` 注解，JDK Proxy 动态生成代理
+- **结构化输出**：双模式解析 —— `GENERATE_RESPONSE_TOOL`（强制工具调用）和 `PROMPT_JSON`（Schema 注入 + 自纠正重试）
+- **`JsonSchemaGenerator`**：Java 类型 → JSON Schema 转换（原语/枚举/Record/List/Map/嵌套 + `@Description` 注解）
+- **`JsonExtractor`**：从 LLM 文本输出中提取 JSON（围栏块/裸 JSON/嵌入式）
+- **`StructuredOutputParser`**：解析/校验/反序列化 + `ParseResult` sealed interface（Success/Retry/Fatal）
+- **六模式编排引擎**：
+  - `SequentialWorkflow`：链式顺序执行，支持 FAIL_FAST / CONTINUE 策略
+  - `ParallelWorkflow`：虚拟线程并行执行 + 合并函数 + FAIL_FAST / CONTINUE
+  - `DagWorkflow`：有向无环图拓扑排序执行，DFS 三色环检测，多上游 Map 输入合并
+  - `LoopWorkflow`：循环执行 + 反馈函数 + 终止条件 + 最大迭代 + 停滞检测
+  - `ConditionalWorkflow`：谓词条件路由（then/otherwise 二分支）
+  - `RouterWorkflow`：多路由分发 + 默认路由 + 无匹配失败
+- **`WorkflowBuilder`**：类型安全的 Fluent API 构建器
+- **`WorkflowContext`**：执行上下文 + 取消传播 + 共享属性 + 步骤记录
+- **`WorkflowLoopGuard`**：滑动窗口哈希停滞检测
+
+#### MCP 协议适配 (`sprinkle-claw-mcp`)
+- **协议层**：`JsonRpc` JSON-RPC 2.0 消息 record（Request/Response/Error）、`McpMethod` 方法常量、`McpError` 错误码
+- **传输层**：`McpTransport` SPI + `StdioTransport`（子进程 stdin/stdout）+ `SseTransport`（HTTP SSE）
+- **客户端**：`McpClient` 门面接口 + `DefaultMcpClient` 实现（initialize 握手 / tools/list / tools/call / ping）
+- **工具桥接**：`McpToolAdapter`（MCP 远程工具 → AgentTool）+ `McpToolProvider`（实现 ToolProvider SPI）+ `McpToolDefinitionMapper`（Schema 映射）
+- **服务端**：`McpServer` Stdio 模式 + `McpRequestHandler` JSON-RPC 分发（将 SDK AgentTool 暴露为 MCP 工具）
+- **生命周期**：`McpProcessManager`（子进程启动 + 初始化握手）+ `McpServerRegistry`（多服务器注册表）
+
+### 测试
+- Ollama 模块：4 个测试类 32 用例
+- Workflow Agent：5 个测试类 37 用例
+- Workflow 编排：7 个测试类 43 用例
+- MCP 模块：5 个测试类 27 用例
+
+### 修复
+- `OllamaToolBridge.toPromptTools()` 中 Jackson ObjectNode 转字符串的 ClassCastException
+
+---
+
 ## [0.5.0] - 2026-04-11
 
 ### 新增
