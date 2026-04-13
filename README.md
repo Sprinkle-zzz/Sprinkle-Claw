@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP4-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP5-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -77,13 +77,16 @@
 | **组件状态持久化**              | `StatePersistable` SPI + `StateManager` 收集/恢复（仅 dirty 组件）                                 |
 | **HITL 异步审批**            | `ApprovalManager` SDK 回调 + Server 端点 `resolve()` 双模式，CompletableFuture 阻塞虚拟线程              |
 | **Hook 优先级**             | `LoopHook.priority()` + `HookManager` 排序执行 + Skip 短路                                      |
+| **ToolChoice 策略**        | `Auto` / `None` / `Required` / `Forced(toolName)` 四种策略，Anthropic / OpenAI 双实现             |
+| **Ollama 本地 LLM**        | NDJSON 流式 + Prompt 工具桥接（非原生 tool_use 模型降级）+ 已知模型能力注册表                               |
+| **@Agent 声明式代理**        | `@Agent` + `@UserMessage` + `@SystemPrompt` 注解，JDK Proxy 动态生成，双模式结构化输出                  |
+| **六模式工作流编排**            | Sequential / Parallel / DAG / Loop / Conditional / Router，类型安全 Builder + 取消传播 + 停滞检测   |
+| **MCP 协议适配**             | JSON-RPC 2.0 + Stdio/SSE 双传输 + Client/Server 双模式 + AgentTool 桥接 + 多服务器注册表             |
 
 ### 📋 规划中
 
 | 特性 | 目标阶段 |
 |------|---------|
-| @Agent 声明式 + Workflow 编排（5 种模式） | MVP5 |
-| MCP 协议适配 + Ollama 本地模型 | MVP5 |
 | REST/SSE/WebSocket（OpenAI 兼容）+ Spring Boot Starter + 企业级网关 | MVP6 |
 
 ---
@@ -157,7 +160,9 @@ public class MyTools {
 ├───────────────────────────┼────────────────────────────────────┤
 │  sprinkle-claw-team       │  sprinkle-claw-worktree            │  可选扩展层 (规划)
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 (agent-ext ✅)
+│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 ✅
+├───────────────────────────┼────────────────────────────────────┤
+│  sprinkle-claw-mcp        │  sprinkle-claw-llm-ollama          │  可选适配层 ✅
 ├───────────────────────────┼────────────────────────────────────┤
 │  sprinkle-claw-core       │  sprinkle-claw-bootstrap           │  核心引擎层 ✅
 ├───────────────────────────┼────────────────────────────────────┤
@@ -179,14 +184,15 @@ public class MyTools {
 | `sprinkle-claw-llm-api` | LLM Provider SPI：LlmProvider、LlmProviderFactory、LlmConfig、LlmException | protocol | ✅ 已实现 |
 | `sprinkle-claw-llm-anthropic` | Anthropic Claude 实现（JDK HttpClient，支持 Thinking 模式） | llm-api | ✅ 已实现 |
 | `sprinkle-claw-llm-openai` | OpenAI 兼容 API 实现（覆盖 DeepSeek、Qwen、GLM、豆包等） | llm-api | ✅ 已实现 |
-| `sprinkle-claw-llm-ollama` | Ollama 本地模型实现 | llm-api | 📋 MVP5 |
+| `sprinkle-claw-llm-ollama` | Ollama 本地模型实现（NDJSON 流式 + Prompt 工具桥接 + 能力注册表） | llm-api | ✅ 已实现 |
 | `sprinkle-claw-tool-api` | 工具 SPI：AgentTool、@Tool 注解、ToolRegistry、ToolProvider、ToolPolicy、GlobToolPolicy | protocol | ✅ 已实现 |
 | `sprinkle-claw-tool-builtin` | 6 个内置工具：bash / read_file / write_file / edit_file / todo_write / compact | tool-api | ✅ 已实现 |
 | `sprinkle-claw-core` | 核心引擎：AgentLoop、ContextManager（三层压缩）、SessionManager、FileSnapshot、LoopGuard、ToolExecutor | protocol, llm-api, tool-api | ✅ 已实现 |
 | `sprinkle-claw-bootstrap` | Builder API + ServiceLoader 自动组装 + 会话管理 | 全部核心模块 | ✅ 已实现 |
 | `sprinkle-claw-benchmark` | JMH 性能基准：工具并发 / JSON 序列化 | core | ✅ 已实现 |
 | `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 + Guardrails + 身份重注入 | core | ✅ 已实现 |
-| `sprinkle-claw-workflow` | @Agent 声明式 + Workflow 编排（5 种模式） | core | 📋 MVP5 |
+| `sprinkle-claw-workflow` | @Agent 声明式代理 + 六模式工作流编排 | core | ✅ 已实现 |
+| `sprinkle-claw-mcp` | MCP 协议适配（Client/Server 双模式 + Stdio/SSE 传输 + AgentTool 桥接） | tool-api | ✅ 已实现 |
 | `sprinkle-claw-gateway` | 认证 / 限流 / 多租户 / Token 计量 | core | 📋 MVP6 |
 | `sprinkle-claw-spring-boot-starter` | Spring Boot 自动配置 + REST/SSE/WebSocket（OpenAI 兼容） | core, bootstrap | 📋 MVP6 |
 | `sprinkle-claw-team` | Agent 团队 + 协议 + 自主 Agent（实验性） | core, agent-ext | 📋 MVP7 |
@@ -206,6 +212,9 @@ sprinkle-claw/
 ├── sprinkle-claw-tool-builtin      ← 内置工具（bash / read / write / edit / todo_write / compact）
 ├── sprinkle-claw-core              ← 核心引擎（AgentLoop + 三层压缩 + 会话管理 + 文件快照）
 ├── sprinkle-claw-agent-ext         ← Agent 扩展（SubAgent + Skill + 任务板 + 后台任务 + Guardrails）
+├── sprinkle-claw-llm-ollama        ← Ollama 本地 LLM Provider
+├── sprinkle-claw-workflow          ← @Agent 声明式代理 + 六模式工作流编排
+├── sprinkle-claw-mcp               ← MCP 协议适配（Client/Server + Stdio/SSE）
 ├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader + ExtensionRegistrar）
 └── sprinkle-claw-benchmark         ← JMH 性能基准
 ```
@@ -234,7 +243,7 @@ sprinkle-claw/
 | **MVP2** | 三层上下文压缩 + 会话持久化 + Token 估算 + TodoWrite + Compact + FileSnapshot | ✅ 已完成 |
 | **MVP3** | SubAgent + Skill 两层加载 + 持久化任务板 + 后台任务 + Guardrails + 上下文压缩增强 + 推理模型支持 | ✅ 已完成 |
 | **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + 引擎韧性（错误恢复 / Fallback / 工具分级 / Hook 增强）+ 状态持久化 + HITL 审批 | ✅ 已完成 |
-| **MVP5** | Ollama Provider + @Agent 声明式 + Workflow 编排 (5 模式) + MCP 协议适配 | 📋 计划中 |
+| **MVP5** | ToolChoice 策略 + Ollama Provider + @Agent 声明式 + 六模式 Workflow 编排 + MCP 协议适配 | ✅ 已完成 |
 | **MVP6** | REST/SSE/WebSocket（OpenAI 兼容）+ Spring Boot Starter + 企业级网关（认证/限流/多租户） | 📋 计划中 |
 | **MVP7** | Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离（实验性） | 📋 计划中 |
 | **MVP8** | 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | 📋 计划中 |

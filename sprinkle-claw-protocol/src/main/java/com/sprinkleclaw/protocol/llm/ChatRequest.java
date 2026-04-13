@@ -16,6 +16,7 @@ import java.util.Optional;
  * @param temperature    温度参数（控制随机性）
  * @param stopSequences  停止序列列表
  * @param thinkingConfig 思考/推理模式配置（Anthropic 使用 budgetTokens，OpenAI 使用 reasoningEffort）
+ * @param toolChoice     工具选择策略（AUTO/NONE/REQUIRED/Forced），控制 LLM 是否及如何调用工具
  *
  * @author sprinkle
  * @since 2026/3/17
@@ -27,8 +28,43 @@ public record ChatRequest(
         int maxTokens,
         double temperature,
         List<String> stopSequences,
-        Optional<ThinkingConfig> thinkingConfig
+        Optional<ThinkingConfig> thinkingConfig,
+        ToolChoice toolChoice
 ) {
+
+    /**
+     * Compact constructor：兜底 null toolChoice 为 AUTO，保持向后兼容。
+     */
+    public ChatRequest {
+        if (toolChoice == null) {
+            toolChoice = ToolChoice.AUTO;
+        }
+    }
+
+    /**
+     * 工具选择策略，控制 LLM 是否及如何调用工具。
+     */
+    public sealed interface ToolChoice {
+
+        /** 自动决策（默认行为，LLM 自行判断是否调用工具） */
+        ToolChoice AUTO = new Auto();
+
+        /** 禁止工具调用 */
+        ToolChoice NONE = new None();
+
+        /** 要求 LLM 必须调用至少一个工具 */
+        ToolChoice REQUIRED = new Required();
+
+        /** 强制调用指定名称的工具 */
+        static ToolChoice forced(String toolName) {
+            return new Forced(toolName);
+        }
+
+        record Auto() implements ToolChoice {}
+        record None() implements ToolChoice {}
+        record Required() implements ToolChoice {}
+        record Forced(String toolName) implements ToolChoice {}
+    }
     /**
      * 创建构建器实例。
      */
@@ -47,6 +83,7 @@ public record ChatRequest(
         private double temperature = 0.7;
         private List<String> stopSequences = List.of();
         private ThinkingConfig thinkingConfig = null;
+        private ToolChoice toolChoice = ToolChoice.AUTO;
 
         private Builder() {
         }
@@ -93,11 +130,22 @@ public record ChatRequest(
         }
 
         /**
+         * 设置工具选择策略。
+         *
+         * @param toolChoice 工具选择策略
+         * @return 构建器自身
+         */
+        public Builder toolChoice(ToolChoice toolChoice) {
+            this.toolChoice = toolChoice;
+            return this;
+        }
+
+        /**
          * 构建不可变的 ChatRequest 实例。
          */
         public ChatRequest build() {
             return new ChatRequest(systemPrompt, messages, tools, maxTokens, temperature,
-                    stopSequences, Optional.ofNullable(thinkingConfig));
+                    stopSequences, Optional.ofNullable(thinkingConfig), toolChoice);
         }
     }
 }

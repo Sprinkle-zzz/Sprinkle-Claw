@@ -6,7 +6,7 @@
 
     <groupId>icu.sprinkle</groupId>
     <artifactId>sprinkle-claw-parent</artifactId>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
     <packaging>pom</packaging>
 
     <name>Sprinkle-Claw</name>
@@ -44,6 +44,9 @@
         <module>sprinkle-claw-tool-builtin</module>
         <module>sprinkle-claw-core</module>
         <module>sprinkle-claw-bootstrap</module>
+        <module>sprinkle-claw-llm-ollama</module>
+        <module>sprinkle-claw-workflow</module>
+        <module>sprinkle-claw-mcp</module>
         <module>sprinkle-claw-agent-ext</module>
         <module>sprinkle-claw-benchmark</module>
     </modules>
@@ -153,6 +156,21 @@
             <dependency>
                 <groupId>icu.sprinkle</groupId>
                 <artifactId>sprinkle-claw-bootstrap</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>icu.sprinkle</groupId>
+                <artifactId>sprinkle-claw-llm-ollama</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>icu.sprinkle</groupId>
+                <artifactId>sprinkle-claw-workflow</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>icu.sprinkle</groupId>
+                <artifactId>sprinkle-claw-mcp</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

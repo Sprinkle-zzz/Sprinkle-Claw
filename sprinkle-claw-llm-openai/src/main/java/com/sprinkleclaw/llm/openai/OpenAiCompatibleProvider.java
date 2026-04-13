@@ -72,6 +72,9 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
                 .supportsStructuredOutput(true)
                 .contextWindowTokens(128_000)
                 .maxOutputTokens(16_384)
+                .supportsToolChoice(true)
+                .supportsStreaming(true)
+                .supportsToolUse(true)
                 .build();
     }
 
@@ -291,6 +294,10 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
                 funcNode.put("description", tool.description());
                 funcNode.set("parameters", objectMapper.valueToTree(tool.inputSchema()));
             }
+
+            // toolChoice 序列化：AUTO → "auto"；NONE → "none"；REQUIRED → "required"；
+            // Forced(name) → {type: "function", function: {name: name}}
+            serializeToolChoice(request.toolChoice(), root);
         }
 
         return root.toString();
@@ -408,6 +415,27 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
         } catch (Exception e) {
             throw new LlmException(ErrorKind.UNKNOWN, "Failed to parse response: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 将 Protocol ToolChoice 序列化为 OpenAI tool_choice JSON 字段。
+     * <p>映射规则：AUTO → "auto"；NONE → "none"；REQUIRED → "required"；
+     * Forced(name) → {type: "function", function: {name: name}}。</p>
+     */
+    private void serializeToolChoice(ChatRequest.ToolChoice toolChoice, ObjectNode root) {
+        switch (toolChoice) {
+            case ChatRequest.ToolChoice.Auto ignored ->
+                    root.put("tool_choice", "auto");
+            case ChatRequest.ToolChoice.None ignored ->
+                    root.put("tool_choice", "none");
+            case ChatRequest.ToolChoice.Required ignored ->
+                    root.put("tool_choice", "required");
+            case ChatRequest.ToolChoice.Forced f -> {
+                ObjectNode tc = root.putObject("tool_choice");
+                tc.put("type", "function");
+                tc.putObject("function").put("name", f.toolName());
+            }
         }
     }
 
