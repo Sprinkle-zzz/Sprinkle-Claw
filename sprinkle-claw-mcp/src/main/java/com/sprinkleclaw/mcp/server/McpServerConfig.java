@@ -15,10 +15,10 @@ public record McpServerConfig(
 ) {
     public McpServerConfig {
         if (serverName == null || serverName.isBlank()) serverName = "sprinkle-claw-mcp-server";
-        if (serverVersion == null || serverVersion.isBlank()) serverVersion = "0.5.0";
+        if (serverVersion == null || serverVersion.isBlank()) serverVersion = "0.6.0";
     }
 
     public static McpServerConfig defaults() {
-        return new McpServerConfig("sprinkle-claw-mcp-server", "0.5.0");
+        return new McpServerConfig("sprinkle-claw-mcp-server", "0.6.0");
     }
 }

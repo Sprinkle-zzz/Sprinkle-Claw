@@ -19,12 +19,12 @@ public record McpClientConfig(
 ) {
     public McpClientConfig {
         if (clientName == null || clientName.isBlank()) clientName = "sprinkle-claw";
-        if (clientVersion == null || clientVersion.isBlank()) clientVersion = "0.5.0";
+        if (clientVersion == null || clientVersion.isBlank()) clientVersion = "0.6.0";
         if (requestTimeout == null) requestTimeout = Duration.ofSeconds(30);
     }
 
     public static McpClientConfig defaults() {
-        return new McpClientConfig("sprinkle-claw", "0.5.0", Duration.ofSeconds(30));
+        return new McpClientConfig("sprinkle-claw", "0.6.0", Duration.ofSeconds(30));
     }
 
     public static Builder builder() {
@@ -33,7 +33,7 @@ public record McpClientConfig(
 
     public static final class Builder {
         private String clientName = "sprinkle-claw";
-        private String clientVersion = "0.5.0";
+        private String clientVersion = "0.6.0";
         private Duration requestTimeout = Duration.ofSeconds(30);
 
         public Builder clientName(String name) { this.clientName = name; return this; }
