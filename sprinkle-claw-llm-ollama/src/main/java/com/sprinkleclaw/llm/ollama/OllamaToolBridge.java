@@ -48,7 +48,7 @@ final class OllamaToolBridge {
         sb.append("# Available Tools\n\n");
         for (var tool : tools) {
             sb.append("- ").append(tool.name()).append(": ").append(tool.description()).append('\n');
-            sb.append("  Schema: ").append(MAPPER.valueToTree(tool.inputSchema())).append('\n');
+            sb.append("  Schema: ").append(MAPPER.valueToTree(tool.inputSchema()).toString()).append('\n');
         }
         sb.append("\n# Tool Calling Protocol\n");
         sb.append("To call a tool, respond ONLY with a JSON block:\n");
