@@ -22,6 +22,8 @@ import com.sprinkleclaw.core.snapshot.SnapshotException;
 import com.sprinkleclaw.llm.LlmConfig;
 import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.llm.LlmProviderFactory;
+import com.sprinkleclaw.mcp.config.McpServerConfig;
+import com.sprinkleclaw.mcp.lifecycle.McpServerRegistry;
 import com.sprinkleclaw.tool.AgentTool;
 import com.sprinkleclaw.tool.ToolPolicy;
 import com.sprinkleclaw.tool.ToolProvider;
@@ -94,6 +96,7 @@ public final class ClawBuilder {
     private boolean enableTaskBoard = false;
     private boolean enableBackgroundTasks = false;
     private String identityPrompt = "";
+    private final List<McpServerConfig> mcpServers = new ArrayList<>();
 
     ClawBuilder() {
     }
@@ -397,6 +400,23 @@ public final class ClawBuilder {
     }
 
     /**
+     * 启用 MCP 客户端：连接每个配置的远程 MCP 服务器，把其工具自动加入 ToolRegistry。
+     * 需要 sprinkle-claw-mcp 在 classpath。
+     */
+    public ClawBuilder enableMcp(List<McpServerConfig> servers) {
+        if (servers != null) this.mcpServers.addAll(servers);
+        return this;
+    }
+
+    /**
+     * 添加单个 MCP 服务器（{@link #enableMcp(List)} 的简写）。
+     */
+    public ClawBuilder addMcpServer(McpServerConfig server) {
+        if (server != null) this.mcpServers.add(server);
+        return this;
+    }
+
+    /**
      * 构建 {@link Claw} Agent 实例。
      *
      * @return 构建好的 Agent
@@ -407,6 +427,16 @@ public final class ClawBuilder {
 
         ToolRegistry registry = new ToolRegistry();
         discoverAndRegisterTools(registry);
+
+        List<AutoCloseable> resources = new ArrayList<>();
+        if (!mcpServers.isEmpty()) {
+            if (!McpRegistrar.isAvailable()) {
+                throw new IllegalStateException(
+                        "enableMcp() requires sprinkle-claw-mcp on classpath.");
+            }
+            McpServerRegistry mcpRegistry = McpRegistrar.register(mcpServers, registry);
+            resources.add(mcpRegistry);
+        }
 
         // MVP2: 按需注册 TodoWriteTool
         if (enableTodoWrite) {
@@ -477,7 +507,7 @@ public final class ClawBuilder {
         AgentLoop agentLoop = new AgentLoop(provider, toolExecutor, context,
                 hooks, agentErrorHandler, metrics, tracer, contextManager, sessionManager);
 
-        return new Claw(agentLoop, context, sessionManager);
+        return new Claw(agentLoop, context, sessionManager, resources);
     }
 
     /**

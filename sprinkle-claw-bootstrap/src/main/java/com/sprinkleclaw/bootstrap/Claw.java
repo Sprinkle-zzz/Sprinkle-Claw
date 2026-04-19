@@ -7,6 +7,8 @@ import com.sprinkleclaw.core.session.SessionId;
 import com.sprinkleclaw.core.session.SessionManager;
 import com.sprinkleclaw.core.session.SessionStore;
 import com.sprinkleclaw.protocol.message.Message;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
@@ -25,16 +27,25 @@ import java.util.Optional;
  * @author sprinkle
  * @since 2026/3/20
  */
-public final class Claw {
+public final class Claw implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(Claw.class);
 
     private final AgentLoop agentLoop;
     private final AgentContext context;
     private final SessionManager sessionManager;
+    private final List<AutoCloseable> resources;
 
-    Claw(AgentLoop agentLoop, AgentContext context, SessionManager sessionManager) {
+    Claw(AgentLoop agentLoop, AgentContext context, SessionManager sessionManager,
+         List<AutoCloseable> resources) {
         this.agentLoop = Objects.requireNonNull(agentLoop);
         this.context = Objects.requireNonNull(context);
         this.sessionManager = sessionManager;
+        this.resources = resources != null ? List.copyOf(resources) : List.of();
+    }
+
+    Claw(AgentLoop agentLoop, AgentContext context, SessionManager sessionManager) {
+        this(agentLoop, context, sessionManager, List.of());
     }
 
     /**
@@ -126,5 +137,19 @@ public final class Claw {
      */
     public AgentContext context() {
         return context;
+    }
+
+    /**
+     * 释放所有由 ClawBuilder 在构建期分配的资源（如 MCP 服务器连接）。
+     */
+    @Override
+    public void close() {
+        for (AutoCloseable r : resources) {
+            try {
+                r.close();
+            } catch (Exception e) {
+                log.warn("Claw 资源释放失败 {}: {}", r.getClass().getSimpleName(), e.getMessage());
+            }
+        }
     }
 }
