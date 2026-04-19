@@ -48,6 +48,7 @@
         <module>sprinkle-claw-workflow</module>
         <module>sprinkle-claw-mcp</module>
         <module>sprinkle-claw-agent-ext</module>
+        <module>sprinkle-claw-gateway</module>
         <module>sprinkle-claw-benchmark</module>
     </modules>
 
@@ -176,6 +177,11 @@
             <dependency>
                 <groupId>icu.sprinkle</groupId>
                 <artifactId>sprinkle-claw-agent-ext</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>icu.sprinkle</groupId>
+                <artifactId>sprinkle-claw-gateway</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
