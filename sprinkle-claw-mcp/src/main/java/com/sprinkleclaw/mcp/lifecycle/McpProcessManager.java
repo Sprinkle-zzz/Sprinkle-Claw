@@ -1,80 +1,74 @@
 package com.sprinkleclaw.mcp.lifecycle;
 
-import com.sprinkleclaw.mcp.client.DefaultMcpClient;
-import com.sprinkleclaw.mcp.client.McpClient;
-import com.sprinkleclaw.mcp.client.McpClientConfig;
-import com.sprinkleclaw.mcp.transport.McpTransport;
-import com.sprinkleclaw.mcp.transport.StdioTransport;
+import com.sprinkleclaw.mcp.config.McpServerConfig;
+import com.sprinkleclaw.mcp.config.McpTransportFactory;
+import com.sprinkleclaw.mcp.health.McpAvailability;
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.spec.McpClientTransport;
+import io.modelcontextprotocol.spec.McpSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
 import java.util.Objects;
 
 /**
- * MCP 子进程生命周期管理器。
- * <p>封装 Stdio 传输层 + 客户端创建 + 初始化握手的完整流程。</p>
+ * 单个 MCP 服务器连接的生命周期管理器：
+ * 根据 {@link McpServerConfig} 构造传输层并完成握手，对外暴露 {@link McpSyncClient}。
  *
  * @author sprinkle
- * @since 2026/4/13
+ * @since 0.7.0 (MVP6)
  */
 public final class McpProcessManager implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(McpProcessManager.class);
+    private static final String CLIENT_NAME = "sprinkle-claw";
+    private static final String CLIENT_VERSION = "0.7.0";
 
-    private final String[] command;
-    private final Map<String, String> env;
-    private final McpClientConfig clientConfig;
+    private final McpServerConfig config;
 
-    private McpTransport transport;
-    private McpClient client;
+    private McpClientTransport transport;
+    private McpSyncClient client;
 
-    public McpProcessManager(String[] command, Map<String, String> env, McpClientConfig clientConfig) {
-        this.command = Objects.requireNonNull(command);
-        this.env = env != null ? Map.copyOf(env) : Map.of();
-        this.clientConfig = clientConfig != null ? clientConfig : McpClientConfig.defaults();
+    public McpProcessManager(McpServerConfig config) {
+        this.config = Objects.requireNonNull(config, "config");
     }
 
-    public McpProcessManager(String... command) {
-        this(command, null, null);
-    }
-
-    /**
-     * 启动子进程并完成初始化握手。
-     *
-     * @return 已初始化的 MCP 客户端
-     */
-    public McpClient start() {
-        if (client != null && client.isConnected()) {
+    public synchronized McpSyncClient start() {
+        if (client != null) {
             return client;
         }
-        transport = env.isEmpty()
-                ? new StdioTransport(command)
-                : new StdioTransport(env, command);
-        transport.start();
-
-        client = new DefaultMcpClient(transport, clientConfig);
-        client.initialize().join();
-        log.info("[McpProcessManager] MCP 服务已启动: {}", String.join(" ", command));
+        McpAvailability.requireAvailable();
+        transport = McpTransportFactory.create(config);
+        client = McpClient.sync(transport)
+                .clientInfo(new McpSchema.Implementation(CLIENT_NAME, CLIENT_VERSION))
+                .requestTimeout(config.requestTimeout())
+                .build();
+        client.initialize();
+        log.info("[McpProcessManager] MCP 服务已启动: id={} transport={}",
+                config.id(), config.transport());
         return client;
     }
 
-    /**
-     * 获取当前客户端实例。
-     */
-    public McpClient client() {
+    public McpSyncClient client() {
         return client;
+    }
+
+    public McpServerConfig config() {
+        return config;
     }
 
     @Override
-    public void close() throws Exception {
+    public synchronized void close() {
         if (client != null) {
-            client.close();
-            client = null;
+            try {
+                client.closeGracefully();
+            } catch (Exception e) {
+                log.warn("[McpProcessManager] 关闭 MCP 客户端失败 id={}: {}", config.id(), e.getMessage());
+            } finally {
+                client = null;
+            }
         }
-        if (transport != null) {
-            transport.close();
-            transport = null;
-        }
+        transport = null;
     }
 }
