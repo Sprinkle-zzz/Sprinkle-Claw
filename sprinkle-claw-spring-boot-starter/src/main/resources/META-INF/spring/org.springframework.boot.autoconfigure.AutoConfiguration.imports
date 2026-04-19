@@ -1,0 +1,3 @@
+com.sprinkleclaw.spring.autoconfigure.SprinkleClawAutoConfiguration
+com.sprinkleclaw.spring.autoconfigure.GatewayAutoConfiguration
+com.sprinkleclaw.spring.autoconfigure.ActuatorAutoConfiguration

@@ -5,6 +5,89 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.7.0] - 2026-04-19
+
+### MVP6 · 企业级网关 + Spring Boot Starter + MCP 官方 SDK
+
+#### 新增 —— `sprinkle-claw-gateway`（全新模块）
+
+纯 Java SPI 设计的企业级管控过滤器链，零 Spring 依赖，可在任何框架中使用：
+
+- **过滤器骨架**：`GatewayFilter` SPI（`order` + `preFilter` + `postFilter`）+ `FilterResult` sealed (Pass / Reject) + `GatewayFilterChain`（pre 升序 → Agent → post 降序，Reject 短路）+ `FilterOrder` 顺序常量
+- **请求/响应模型**：`GatewayRequest` / `GatewayResponse` / `GatewayException` / `ErrorCode` 错误码枚举
+- **认证**：`AuthProvider` SPI + `AuthFilter`（多 Provider 短路）
+  - `ApiKeyAuthProvider` + `ApiKeyStore` SPI + `InMemoryApiKeyStore`
+  - `JwtAuthProvider`（基于 nimbus-jose-jwt，optional 依赖）：JWKS 公钥验签 + iss/aud/exp 校验 + sub/tenant_id/plan/permissions claim 提取
+- **限流**：`RateLimiter` SPI + `RateLimitResult` + `Bucket4jRateLimiter`（Bucket4j 8.10 + Caffeine 缓存）+ `RateLimitFilter`（超限附 X-RateLimit-* 响应头）
+- **多租户**：`TenantPlan` (FREE/BASIC/PRO 配额) + `TenantContext` + `TenantQuota`（AtomicLong 日配额）+ `TenantFilter`
+- **ACL**：`AccessControlList`（IP 黑/白名单）+ `AclFilter`
+- **审计**：`AuditLogger` SPI + `AsyncBufferedAuditLogger`（异步缓冲 + 定时 flush）+ `AuditFilter`（pre 记请求 / post 记响应+token）+ `AuditEvent` record
+- **Token 计量**：`TokenMeteringFilter` 从 `Usage` 提取 + `UsageReporter` SPI + `AsyncBufferedUsageReporter`
+- **安全**：`PromptInjectionGuard` + `KeywordInjectionDetector`（预编译正则）+ `OutputValidator` + `SensitivePatternRule`
+
+#### 新增 —— `sprinkle-claw-spring-boot-starter`（全新模块）
+
+Spring Boot 3.2+ 自动配置，从 `application.yml` 一行集成：
+
+- **`SprinkleClawProperties`**：`@ConfigurationProperties("sprinkle-claw")`，覆盖 `llm.*` / `agent.*` / `tools.*` / `gateway.*` / `mcp.*` / `security.*`
+- **`SprinkleClawAutoConfiguration`**：`@Bean Claw`（按 properties 装配 `ClawBuilder`，含 metrics / mcp servers）
+- **`GatewayAutoConfiguration`**：`sprinkle-claw.gateway.enabled=true` 时按配置装配 `GatewayFilterChain`、`ApiKeyStore`、`RateLimiter`、`AccessControlList`
+- **`ActuatorAutoConfiguration`**：可选条件装配 `SprinkleClawHealthIndicator`（LLM Provider 健康检查）+ `MicrometerAgentMetrics`（实现 `AgentMetrics` SPI 桥接 Micrometer）
+
+#### 新增 —— MCP 模块迁移至官方 SDK
+
+- **依赖：`io.modelcontextprotocol.sdk:mcp:1.1.1`**（`<optional>true</optional>`），通过 `McpAvailability` 在运行时检测，缺失时给出明确指引
+- **`com.sprinkleclaw.mcp.config.McpServerConfig`**：record + Builder，统一覆盖 STDIO / SSE / STREAMABLE_HTTP 三种传输模式
+- **`com.sprinkleclaw.mcp.config.McpTransportFactory`**：根据配置创建 SDK 原生 `McpClientTransport`
+- **`com.sprinkleclaw.mcp.bridge`**：`McpToolAdapter` / `McpToolProvider` / `McpToolDefinitionMapper`，把 SDK `McpSyncClient` 暴露的远端工具桥接为 SC 的 `AgentTool`
+- **`com.sprinkleclaw.mcp.health`**：`McpAvailability`（运行时检测 SDK）+ `McpHealthState`（UP/DEGRADED/DOWN，连续 3 次失败转 DOWN）
+- **`com.sprinkleclaw.mcp.lifecycle`**：`McpProcessManager`（封装 SDK 客户端 + 握手）/ `McpServerRegistry`（多服务器聚合 + 30 秒周期 ping 探活）
+- **`com.sprinkleclaw.mcp.error.McpErrorMapper`**：SDK 异常 → `ToolResult.error`，隔离上层
+- **`com.sprinkleclaw.mcp.server.SprinkleClawMcpServer` + `ToolRegistryBridge`**：基于官方 SDK `McpSyncServer` 重写服务端，把 `ToolRegistry` 暴露给外部 MCP 客户端（如 Claude Desktop / MCP Inspector）
+- **主链路接入**：`ClawBuilder.enableMcp(List<McpServerConfig>)` / `addMcpServer(...)`；`Claw` 实现 `AutoCloseable`，构建期分配的 MCP 资源在 `close()` 中统一释放
+- **Spring Boot 装配**：`SprinkleClawProperties.Mcp.servers[]` 支持 `id/transport/command/args/env/url/headers/requestTimeout`，`SprinkleClawAutoConfiguration` 自动映射并调用 `enableMcp(...)`
+
+#### 移除（破坏性）—— 旧自研 MCP
+
+- 整目录删除：`com.sprinkleclaw.mcp.protocol`（`JsonRpc` / `McpError` / `McpMethod`）
+- 整目录删除：`com.sprinkleclaw.mcp.transport`（`McpTransport` / `StdioTransport` / `SseTransport`）
+- 整目录删除：`com.sprinkleclaw.mcp.client`（`McpClient` / `DefaultMcpClient` / `McpClientConfig`）
+- 整目录删除：`com.sprinkleclaw.mcp.tool`（`McpToolAdapter` / `McpToolProvider` / `McpToolDefinitionMapper` —— 已迁至 `bridge` 包，签名改为接受 SDK 类型）
+- 旧 server：`com.sprinkleclaw.mcp.server.{McpServer, McpServerConfig, McpRequestHandler}`
+- 直接依赖 `com.fasterxml.jackson.core:jackson-databind` 已从 `sprinkle-claw-mcp` 中移除（SDK 自带 Jackson 3 `tools.jackson.*`）
+
+#### 兼容性
+
+- 项目此前无外部用户，故 MCP 采用原子替换、未保留 `Sdk*` 过渡前缀；调用方需将 `enableMcp(...)` 改为基于 `McpServerConfig` 的新 API
+- `sprinkle-claw-mcp` 主代码量 1505 → ~830 行（约 -45%）
+- Gateway / Spring Boot Starter 为新增模块，对历史 API 无影响
+
+
+
+#### 新增
+- **依赖：`io.modelcontextprotocol.sdk:mcp:1.1.1`**（`<optional>true</optional>`），通过 `McpAvailability` 在运行时检测，缺失时给出明确指引
+- **`com.sprinkleclaw.mcp.config.McpServerConfig`**：record + Builder，统一覆盖 STDIO / SSE / STREAMABLE_HTTP 三种传输模式
+- **`com.sprinkleclaw.mcp.config.McpTransportFactory`**：根据配置创建 SDK 原生 `McpClientTransport`
+- **`com.sprinkleclaw.mcp.bridge`**：`McpToolAdapter` / `McpToolProvider` / `McpToolDefinitionMapper`，把 SDK `McpSyncClient` 暴露的远端工具桥接为 SC 的 `AgentTool`
+- **`com.sprinkleclaw.mcp.health`**：`McpAvailability`（运行时检测 SDK）+ `McpHealthState`（UP/DEGRADED/DOWN，连续 3 次失败转 DOWN）
+- **`com.sprinkleclaw.mcp.lifecycle`**：`McpProcessManager`（封装 SDK 客户端 + 握手）/ `McpServerRegistry`（多服务器聚合 + 30 秒周期 ping 探活）
+- **`com.sprinkleclaw.mcp.error.McpErrorMapper`**：SDK 异常 → `ToolResult.error`，隔离上层
+- **`com.sprinkleclaw.mcp.server.SprinkleClawMcpServer` + `ToolRegistryBridge`**：基于官方 SDK `McpSyncServer` 重写服务端，把 `ToolRegistry` 暴露给外部 MCP 客户端（如 Claude Desktop / MCP Inspector）
+- **主链路接入**：`ClawBuilder.enableMcp(List<McpServerConfig>)` / `addMcpServer(...)`；`Claw` 实现 `AutoCloseable`，构建期分配的 MCP 资源在 `close()` 中统一释放
+- **Spring Boot 装配**：`SprinkleClawProperties.Mcp.servers[]` 支持 `id/transport/command/args/env/url/headers/requestTimeout`，`SprinkleClawAutoConfiguration` 自动映射并调用 `enableMcp(...)`
+
+#### 移除（破坏性）
+- 整目录删除：`com.sprinkleclaw.mcp.protocol`（`JsonRpc` / `McpError` / `McpMethod`）
+- 整目录删除：`com.sprinkleclaw.mcp.transport`（`McpTransport` / `StdioTransport` / `SseTransport`）
+- 整目录删除：`com.sprinkleclaw.mcp.client`（`McpClient` / `DefaultMcpClient` / `McpClientConfig`）
+- 整目录删除：`com.sprinkleclaw.mcp.tool`（`McpToolAdapter` / `McpToolProvider` / `McpToolDefinitionMapper` —— 已迁至 `bridge` 包，签名改为接受 SDK 类型）
+- 旧 server：`com.sprinkleclaw.mcp.server.{McpServer, McpServerConfig, McpRequestHandler}`
+- 直接依赖 `com.fasterxml.jackson.core:jackson-databind` 已从 `sprinkle-claw-mcp` 中移除（SDK 自带 Jackson 3 `tools.jackson.*`）
+
+#### 兼容性
+- 项目此前无外部用户，故采用原子替换、未保留 `Sdk*` 过渡前缀；调用方需将 `enableMcp(...)` 改为基于 `McpServerConfig` 的新 API
+- `sprinkle-claw-mcp` 主代码量 1505 → ~830 行（约 -45%）
+
 ## [0.6.0] - 2026-04-13
 
 ### 新增

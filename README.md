@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP5-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP6-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -81,13 +81,15 @@
 | **Ollama 本地 LLM**        | NDJSON 流式 + Prompt 工具桥接（非原生 tool_use 模型降级）+ 已知模型能力注册表                               |
 | **@Agent 声明式代理**        | `@Agent` + `@UserMessage` + `@SystemPrompt` 注解，JDK Proxy 动态生成，双模式结构化输出                  |
 | **六模式工作流编排**            | Sequential / Parallel / DAG / Loop / Conditional / Router，类型安全 Builder + 取消传播 + 停滞检测   |
-| **MCP 协议适配**             | JSON-RPC 2.0 + Stdio/SSE 双传输 + Client/Server 双模式 + AgentTool 桥接 + 多服务器注册表             |
+| **MCP 协议适配（官方 SDK）**     | 基于 `io.modelcontextprotocol.sdk:mcp:1.1.1`（optional）+ STDIO/SSE/STREAMABLE_HTTP 三传输 + Client/Server 双模式 + 30s ping 健康探活 + 运行时降级 |
+| **企业级网关**                | 过滤器链：API Key / JWT 认证 + Bucket4j 限流 + 多租户配额 + IP ACL + 异步审计 + Token 计量 + Prompt 注入检测 + 输出敏感信息过滤 |
+| **Spring Boot Starter**     | `application.yml` 一行集成：自动装配 `Claw` / `GatewayFilterChain`，含 Actuator HealthIndicator + Micrometer 指标 |
 
 ### 📋 规划中
 
 | 特性 | 目标阶段 |
 |------|---------|
-| REST/SSE/WebSocket（OpenAI 兼容）+ Spring Boot Starter + 企业级网关 | MVP6 |
+| Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离 | MVP7 |
 
 ---
 
@@ -192,9 +194,9 @@ public class MyTools {
 | `sprinkle-claw-benchmark` | JMH 性能基准：工具并发 / JSON 序列化 | core | ✅ 已实现 |
 | `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 + Guardrails + 身份重注入 | core | ✅ 已实现 |
 | `sprinkle-claw-workflow` | @Agent 声明式代理 + 六模式工作流编排 | core | ✅ 已实现 |
-| `sprinkle-claw-mcp` | MCP 协议适配（Client/Server 双模式 + Stdio/SSE 传输 + AgentTool 桥接） | tool-api | ✅ 已实现 |
-| `sprinkle-claw-gateway` | 认证 / 限流 / 多租户 / Token 计量 | core | 📋 MVP6 |
-| `sprinkle-claw-spring-boot-starter` | Spring Boot 自动配置 + REST/SSE/WebSocket（OpenAI 兼容） | core, bootstrap | 📋 MVP6 |
+| `sprinkle-claw-mcp` | MCP 协议适配（官方 SDK 1.1.1 桥接 + Client/Server 双模式 + STDIO/SSE/StreamableHTTP 传输 + 健康探活） | tool-api | ✅ 已实现 |
+| `sprinkle-claw-gateway` | 企业级管控：认证（API Key / JWT）/ Bucket4j 限流 / 多租户配额 / IP ACL / 异步审计 / Token 计量 / Prompt 注入检测 / 输出敏感过滤 | protocol | ✅ 已实现 |
+| `sprinkle-claw-spring-boot-starter` | Spring Boot 3.2+ 自动配置（`Claw` bean + Gateway filter chain + Actuator Health + Micrometer） | bootstrap, gateway | ✅ 已实现 |
 | `sprinkle-claw-team` | Agent 团队 + 协议 + 自主 Agent（实验性） | core, agent-ext | 📋 MVP7 |
 | `sprinkle-claw-worktree` | Git Worktree 隔离 + EventBus（实验性） | core, agent-ext | 📋 MVP7 |
 
@@ -214,8 +216,10 @@ sprinkle-claw/
 ├── sprinkle-claw-agent-ext         ← Agent 扩展（SubAgent + Skill + 任务板 + 后台任务 + Guardrails）
 ├── sprinkle-claw-llm-ollama        ← Ollama 本地 LLM Provider
 ├── sprinkle-claw-workflow          ← @Agent 声明式代理 + 六模式工作流编排
-├── sprinkle-claw-mcp               ← MCP 协议适配（Client/Server + Stdio/SSE）
+├── sprinkle-claw-mcp               ← MCP 协议适配（官方 SDK 1.1.1 桥接 + Client/Server + 健康探活）
+├── sprinkle-claw-gateway           ← 企业级网关（认证/限流/多租户/ACL/审计/计量/安全）
 ├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader + ExtensionRegistrar）
+├── sprinkle-claw-spring-boot-starter ← Spring Boot 3.2+ 自动配置 + Actuator
 └── sprinkle-claw-benchmark         ← JMH 性能基准
 ```
 
@@ -243,8 +247,8 @@ sprinkle-claw/
 | **MVP2** | 三层上下文压缩 + 会话持久化 + Token 估算 + TodoWrite + Compact + FileSnapshot | ✅ 已完成 |
 | **MVP3** | SubAgent + Skill 两层加载 + 持久化任务板 + 后台任务 + Guardrails + 上下文压缩增强 + 推理模型支持 | ✅ 已完成 |
 | **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + 引擎韧性（错误恢复 / Fallback / 工具分级 / Hook 增强）+ 状态持久化 + HITL 审批 | ✅ 已完成 |
-| **MVP5** | ToolChoice 策略 + Ollama Provider + @Agent 声明式 + 六模式 Workflow 编排 + MCP 协议适配 | ✅ 已完成 |
-| **MVP6** | REST/SSE/WebSocket（OpenAI 兼容）+ Spring Boot Starter + 企业级网关（认证/限流/多租户） | 📋 计划中 |
+| **MVP5** | ToolChoice 策略 + Ollama Provider + @Agent 声明式 + 六模式 Workflow 编排 + MCP 协议适配（自研） | ✅ 已完成 |
+| **MVP6** | 企业级网关（认证/限流/多租户/ACL/审计/计量/安全）+ Spring Boot Starter（自动配置 + Actuator + Micrometer）+ MCP 迁移至官方 SDK | ✅ 已完成 |
 | **MVP7** | Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离（实验性） | 📋 计划中 |
 | **MVP8** | 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | 📋 计划中 |
 
