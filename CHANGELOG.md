@@ -62,32 +62,6 @@ Spring Boot 3.2+ 自动配置，从 `application.yml` 一行集成：
 - `sprinkle-claw-mcp` 主代码量 1505 → ~830 行（约 -45%）
 - Gateway / Spring Boot Starter 为新增模块，对历史 API 无影响
 
-
-
-#### 新增
-- **依赖：`io.modelcontextprotocol.sdk:mcp:1.1.1`**（`<optional>true</optional>`），通过 `McpAvailability` 在运行时检测，缺失时给出明确指引
-- **`com.sprinkleclaw.mcp.config.McpServerConfig`**：record + Builder，统一覆盖 STDIO / SSE / STREAMABLE_HTTP 三种传输模式
-- **`com.sprinkleclaw.mcp.config.McpTransportFactory`**：根据配置创建 SDK 原生 `McpClientTransport`
-- **`com.sprinkleclaw.mcp.bridge`**：`McpToolAdapter` / `McpToolProvider` / `McpToolDefinitionMapper`，把 SDK `McpSyncClient` 暴露的远端工具桥接为 SC 的 `AgentTool`
-- **`com.sprinkleclaw.mcp.health`**：`McpAvailability`（运行时检测 SDK）+ `McpHealthState`（UP/DEGRADED/DOWN，连续 3 次失败转 DOWN）
-- **`com.sprinkleclaw.mcp.lifecycle`**：`McpProcessManager`（封装 SDK 客户端 + 握手）/ `McpServerRegistry`（多服务器聚合 + 30 秒周期 ping 探活）
-- **`com.sprinkleclaw.mcp.error.McpErrorMapper`**：SDK 异常 → `ToolResult.error`，隔离上层
-- **`com.sprinkleclaw.mcp.server.SprinkleClawMcpServer` + `ToolRegistryBridge`**：基于官方 SDK `McpSyncServer` 重写服务端，把 `ToolRegistry` 暴露给外部 MCP 客户端（如 Claude Desktop / MCP Inspector）
-- **主链路接入**：`ClawBuilder.enableMcp(List<McpServerConfig>)` / `addMcpServer(...)`；`Claw` 实现 `AutoCloseable`，构建期分配的 MCP 资源在 `close()` 中统一释放
-- **Spring Boot 装配**：`SprinkleClawProperties.Mcp.servers[]` 支持 `id/transport/command/args/env/url/headers/requestTimeout`，`SprinkleClawAutoConfiguration` 自动映射并调用 `enableMcp(...)`
-
-#### 移除（破坏性）
-- 整目录删除：`com.sprinkleclaw.mcp.protocol`（`JsonRpc` / `McpError` / `McpMethod`）
-- 整目录删除：`com.sprinkleclaw.mcp.transport`（`McpTransport` / `StdioTransport` / `SseTransport`）
-- 整目录删除：`com.sprinkleclaw.mcp.client`（`McpClient` / `DefaultMcpClient` / `McpClientConfig`）
-- 整目录删除：`com.sprinkleclaw.mcp.tool`（`McpToolAdapter` / `McpToolProvider` / `McpToolDefinitionMapper` —— 已迁至 `bridge` 包，签名改为接受 SDK 类型）
-- 旧 server：`com.sprinkleclaw.mcp.server.{McpServer, McpServerConfig, McpRequestHandler}`
-- 直接依赖 `com.fasterxml.jackson.core:jackson-databind` 已从 `sprinkle-claw-mcp` 中移除（SDK 自带 Jackson 3 `tools.jackson.*`）
-
-#### 兼容性
-- 项目此前无外部用户，故采用原子替换、未保留 `Sdk*` 过渡前缀；调用方需将 `enableMcp(...)` 改为基于 `McpServerConfig` 的新 API
-- `sprinkle-claw-mcp` 主代码量 1505 → ~830 行（约 -45%）
-
 ## [0.6.0] - 2026-04-13
 
 ### 新增
