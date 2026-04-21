@@ -13,6 +13,10 @@ package com.sprinkleclaw.llm;
  * @param supportsToolChoice       是否支持 ToolChoice.REQUIRED / Forced 策略
  * @param supportsStreaming        是否支持真正的流式输出（非 fallback）
  * @param supportsToolUse          是否支持原生工具调用
+ * @param supportsPromptCache      是否支持 Prompt Caching
+ * @param supportsVision           是否支持图片输入
+ * @param supportsPdfInput         是否支持原生 PDF 文档输入
+ * @param supportsAudioInput       是否支持音频输入
  *
  * @author sprinkle
  * @since 2026/4/4
@@ -24,7 +28,11 @@ public record LlmCapabilities(
         int maxOutputTokens,
         boolean supportsToolChoice,
         boolean supportsStreaming,
-        boolean supportsToolUse
+        boolean supportsToolUse,
+        boolean supportsPromptCache,
+        boolean supportsVision,
+        boolean supportsPdfInput,
+        boolean supportsAudioInput
 ) {
 
     /**
@@ -34,14 +42,28 @@ public record LlmCapabilities(
                            int contextWindowTokens, int maxOutputTokens) {
         this(supportsReasoning, supportsStructuredOutput,
                 contextWindowTokens, maxOutputTokens,
-                false, false, false);
+                false, false, false, false, false, false, false);
+    }
+
+    /**
+     * 兼容旧代码的 7 参数构造器：MVP7 新增字段默认 false。
+     */
+    public LlmCapabilities(boolean supportsReasoning, boolean supportsStructuredOutput,
+                           int contextWindowTokens, int maxOutputTokens,
+                           boolean supportsToolChoice, boolean supportsStreaming,
+                           boolean supportsToolUse) {
+        this(supportsReasoning, supportsStructuredOutput,
+                contextWindowTokens, maxOutputTokens,
+                supportsToolChoice, supportsStreaming, supportsToolUse,
+                false, false, false, false);
     }
 
     /**
      * 默认能力声明（保守值：不支持推理/结构化/工具选择/流式/工具调用，128K 窗口，4K 输出）。
      */
     public static final LlmCapabilities DEFAULT = new LlmCapabilities(
-            false, false, 128_000, 4096, false, false, false
+            false, false, 128_000, 4096, false, false, false,
+            false, false, false, false
     );
 
     /**
@@ -59,6 +81,10 @@ public record LlmCapabilities(
         private boolean supportsToolChoice = false;
         private boolean supportsStreaming = false;
         private boolean supportsToolUse = false;
+        private boolean supportsPromptCache = false;
+        private boolean supportsVision = false;
+        private boolean supportsPdfInput = false;
+        private boolean supportsAudioInput = false;
 
         private Builder() {
         }
@@ -98,10 +124,31 @@ public record LlmCapabilities(
             return this;
         }
 
+        public Builder supportsPromptCache(boolean supportsPromptCache) {
+            this.supportsPromptCache = supportsPromptCache;
+            return this;
+        }
+
+        public Builder supportsVision(boolean supportsVision) {
+            this.supportsVision = supportsVision;
+            return this;
+        }
+
+        public Builder supportsPdfInput(boolean supportsPdfInput) {
+            this.supportsPdfInput = supportsPdfInput;
+            return this;
+        }
+
+        public Builder supportsAudioInput(boolean supportsAudioInput) {
+            this.supportsAudioInput = supportsAudioInput;
+            return this;
+        }
+
         public LlmCapabilities build() {
             return new LlmCapabilities(supportsReasoning, supportsStructuredOutput,
                     contextWindowTokens, maxOutputTokens,
-                    supportsToolChoice, supportsStreaming, supportsToolUse);
+                    supportsToolChoice, supportsStreaming, supportsToolUse,
+                    supportsPromptCache, supportsVision, supportsPdfInput, supportsAudioInput);
         }
     }
 }
