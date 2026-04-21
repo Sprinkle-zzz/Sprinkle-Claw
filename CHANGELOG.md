@@ -5,6 +5,73 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.8.0] - 2026-04-21
+
+### MVP7 · Prompt Caching + 多模态内容支持
+
+#### 新增 —— Prompt Caching 框架
+
+全链路 Prompt Cache 支持，从协议层到引擎层自动标记+命中统计：
+
+- **`CacheControl` sealed interface**（`protocol` 模块）：`None`（无缓存）+ `Ephemeral(ttlSeconds)`（默认 300s），用于标记 `ContentBlock` 是否参与 Provider 的 Prompt Caching
+- **`CachePolicy` SPI**（`llm-api` 模块）：函数式接口，在 LLM 调用前修饰 `ChatRequest`，给需要缓存的 ContentBlock 打 `CacheControl` 标记
+- **`CacheStrategy` 枚举**：4 种预定义策略 —— `MANUAL`（手动）/ `AUTO_SYSTEM_PROMPT`（仅系统提示）/ `AUTO_SYSTEM_AND_TOOLS`（系统提示+工具定义）/ `AUTO_AGGRESSIVE`（激进模式，含对话前缀稳定部分）
+- **`DefaultCachePolicy`**：基于 `CacheStrategy` 的默认实现，自动检测 `LlmCapabilities.supportsPromptCache()` 跳过不支持的 Provider
+- **`ChatRequest` 扩展**：新增 `systemCacheControl` / `toolsCacheControl` 字段 + `toBuilder()` 方法，支持 CachePolicy 非侵入修饰
+- **`Usage` 扩展**：新增 `cacheCreationInputTokens` / `cacheReadInputTokens` 字段 + `cacheHitRateBp()` 万分比命中率计算
+- **`AgentMetrics.recordCacheTokens()`**：默认方法，记录缓存创建与命中 token 数
+- **`AgentLoop` 集成**：同步/流式两条路径均注入 `CachePolicy.decide()`，缓存命中时自动打印 debug 日志（命中 token 数 + 命中率）
+
+#### 新增 —— 多模态内容支持
+
+`ContentBlock` 从纯文本/工具/推理扩展为完整的多模态内容模型：
+
+- **`ContentBlock.ImageBlock`**：图片内容块，支持 `base64Data`（内联）或 `url`（外链）二选一 + `CacheControl`，提供 `ofBase64()` / `ofUrl()` 静态工厂
+- **`ContentBlock.DocumentBlock`**：文档内容块（PDF 等），支持 `base64Data` / `url` + `name` 文档名 + `CacheControl`，提供 `ofBase64()` / `ofUrl()` 静态工厂
+- **`ContentBlock.AudioBlock`**：音频内容块，支持 `base64Data` / `url` + `CacheControl`，提供 `ofBase64()` / `ofUrl()` 静态工厂
+- **`ContentBlock` MIME 常量**：`MIME_PNG` / `MIME_JPEG` / `MIME_GIF` / `MIME_WEBP` / `MIME_PDF` / `MIME_WAV` / `MIME_MP3`
+- **`TextBlock` / `ToolUseBlock` 扩展**：新增 `CacheControl` 字段，保留无参兼容构造器
+
+#### 新增 —— LlmCapabilities 多模态能力声明
+
+- **4 个新能力字段**：`supportsPromptCache` / `supportsVision` / `supportsPdfInput` / `supportsAudioInput`
+- **兼容旧代码**：保留 4 参数、7 参数构造器，新字段默认 `false`
+- **Builder 扩展**：对应 4 个新 setter 方法
+
+#### 变更 —— Anthropic Provider
+
+- **Prompt Cache 序列化**：system prompt 带 `Ephemeral` 时转为 `[{type: "text", text: ..., cache_control: {type: "ephemeral"}}]` 数组格式；工具定义列表最后一个工具附加 `cache_control`
+- **多模态序列化**：`serializeUserContentBlock()` 统一处理 UserMessage 中的 Text / Image / Document / Audio / ToolUse / Thinking 块；`serializeImageBlock()` / `serializeDocumentBlock()` 支持 base64 / URL 双模式
+- **Cache Token 解析**：`parseResponse()` 提取 `cache_creation_input_tokens` / `cache_read_input_tokens`
+- **不支持降级**：AudioBlock 在 Anthropic 中序列化为 `[Unsupported]` 文本提示
+
+#### 变更 —— OpenAI 兼容 Provider
+
+- **多模态序列化**：`serializeOpenAiUserBlock()` 支持 `image_url`（data URI / URL）+ 不支持内容降级文本
+- **Cache Token 解析**：`parseResponse()` 提取 `prompt_tokens_details.cached_tokens`
+
+#### 变更 —— Ollama Provider
+
+- **Vision 模型注册表**：新增 `VISION_MODELS` 集合（llava / bakllava / moondream / qwen2-vl）+ `supportsVision()` 查询方法
+- **images 字段序列化**：`OllamaProtocolMapper` 提取 `ImageBlock.base64Data` 写入 Ollama `images[]` 数组
+- **能力声明更新**：所有已知模型 + 保守默认值补充 4 个新能力字段
+
+#### 变更 —— Core 模块适配
+
+- **`AutoCompactor`**：`switch` 表达式新增 `ImageBlock` / `DocumentBlock` / `AudioBlock` 分支，生成 `[image: ...]` / `[document: ...]` / `[audio]` 占位符
+- **`TokenEstimator`**：新增多模态 token 估算 —— `ImageBlock` 固定 1500、`DocumentBlock` / `AudioBlock` 按 base64 长度 /4 估算（兜底 2000）
+
+#### 兼容性
+
+- `ChatRequest` 保留 8 参数构造器（不带缓存控制），新增 10 参数完整构造器
+- `Usage` 保留 2 参数、3 参数构造器，新增 5 参数完整构造器
+- `LlmCapabilities` 保留 4 参数、7 参数构造器，新增 11 参数完整构造器
+- `ContentBlock.TextBlock` / `ToolUseBlock` 保留无 CacheControl 的旧构造器
+- `AgentLoop` 保留 9 参数构造器（不带 CachePolicy），新增 10 参数完整构造器
+- `AgentMetrics.recordCacheTokens()` 为 `default` 方法，不影响现有实现
+
+---
+
 ## [0.7.0] - 2026-04-19
 
 ### MVP6 · 企业级网关 + Spring Boot Starter + MCP 官方 SDK

@@ -190,6 +190,9 @@ public final class TokenEstimator {
                 case TextBlock tb -> estimateText(tb.text());
                 case ToolUseBlock tu -> TOOL_NAME_OVERHEAD + TOOL_CALL_ID_OVERHEAD + estimateJson(tu.input());
                 case ThinkingBlock tk -> estimateText(tk.thinking());
+                case ImageBlock ignored -> 1500;
+                case DocumentBlock d -> d.base64Data() != null ? d.base64Data().length() / 4 : 2000;
+                case AudioBlock a -> a.base64Data() != null ? a.base64Data().length() / 4 : 2000;
             };
         }
         return total;

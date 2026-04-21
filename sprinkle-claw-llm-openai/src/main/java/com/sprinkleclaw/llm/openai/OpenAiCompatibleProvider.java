@@ -75,6 +75,10 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
                 .supportsToolChoice(true)
                 .supportsStreaming(true)
                 .supportsToolUse(true)
+                .supportsPromptCache(true)
+                .supportsVision(true)
+                .supportsPdfInput(false)
+                .supportsAudioInput(false)
                 .build();
     }
 
@@ -312,13 +316,24 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
             case Message.UserMessage u -> {
                 ObjectNode msgNode = messagesArray.addObject();
                 msgNode.put("role", "user");
-                StringBuilder text = new StringBuilder();
-                for (ContentBlock block : u.content()) {
-                    if (block instanceof ContentBlock.TextBlock t) {
-                        text.append(t.text());
+                boolean hasMultimodal = u.content().stream().anyMatch(
+                        b -> b instanceof ContentBlock.ImageBlock
+                                || b instanceof ContentBlock.DocumentBlock
+                                || b instanceof ContentBlock.AudioBlock);
+                if (hasMultimodal) {
+                    ArrayNode contentArray = msgNode.putArray("content");
+                    for (ContentBlock block : u.content()) {
+                        serializeOpenAiUserBlock(block, contentArray);
                     }
+                } else {
+                    StringBuilder text = new StringBuilder();
+                    for (ContentBlock block : u.content()) {
+                        if (block instanceof ContentBlock.TextBlock t) {
+                            text.append(t.text());
+                        }
+                    }
+                    msgNode.put("content", text.toString());
                 }
-                msgNode.put("content", text.toString());
             }
             case Message.AssistantMessage a -> {
                 ObjectNode msgNode = messagesArray.addObject();
@@ -407,7 +422,8 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
             int inputTokens = root.at("/usage/prompt_tokens").asInt(0);
             int outputTokens = root.at("/usage/completion_tokens").asInt(0);
             int reasoningTokens = root.at("/usage/completion_tokens_details/reasoning_tokens").asInt(0);
-            Usage usage = new Usage(inputTokens, outputTokens, reasoningTokens);
+            int cachedTokens = root.at("/usage/prompt_tokens_details/cached_tokens").asInt(0);
+            Usage usage = new Usage(inputTokens, outputTokens, reasoningTokens, 0, cachedTokens);
 
             String modelId = root.has("model") ? root.get("model").asText() : "";
 
@@ -420,6 +436,36 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
     /**
      * 将 Protocol ToolChoice 序列化为 OpenAI tool_choice JSON 字段。
+     * 序列化 UserMessage 中的多模态 ContentBlock 到 OpenAI 格式。
+     */
+    private void serializeOpenAiUserBlock(ContentBlock block, ArrayNode contentArray) {
+        switch (block) {
+            case ContentBlock.TextBlock t -> contentArray.addObject()
+                    .put("type", "text")
+                    .put("text", t.text());
+            case ContentBlock.ImageBlock i -> {
+                ObjectNode node = contentArray.addObject();
+                node.put("type", "image_url");
+                ObjectNode imgUrl = node.putObject("image_url");
+                if (i.base64Data() != null) {
+                    imgUrl.put("url", "data:" + i.mediaType() + ";base64," + i.base64Data());
+                } else {
+                    imgUrl.put("url", i.url());
+                }
+                imgUrl.put("detail", "auto");
+            }
+            case ContentBlock.DocumentBlock ignored -> contentArray.addObject()
+                    .put("type", "text")
+                    .put("text", "[Unsupported: Document content cannot be processed by this model]");
+            case ContentBlock.AudioBlock ignored -> contentArray.addObject()
+                    .put("type", "text")
+                    .put("text", "[Unsupported: Audio content cannot be processed by this model]");
+            case ContentBlock.ToolUseBlock ignored -> {}
+            case ContentBlock.ThinkingBlock ignored -> {}
+        }
+    }
+
+    /**
      * <p>映射规则：AUTO → "auto"；NONE → "none"；REQUIRED → "required"；
      * Forced(name) → {type: "function", function: {name: name}}。</p>
      */

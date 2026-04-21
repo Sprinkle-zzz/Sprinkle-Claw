@@ -12,6 +12,7 @@ import com.sprinkleclaw.core.observability.NoopAgentMetrics;
 import com.sprinkleclaw.core.observability.NoopAgentTracer;
 import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.llm.StreamCallback;
+import com.sprinkleclaw.llm.cache.CachePolicy;
 import com.sprinkleclaw.protocol.llm.ChatRequest;
 import com.sprinkleclaw.protocol.llm.ChatResponse;
 import com.sprinkleclaw.protocol.llm.StopReason;
@@ -70,6 +71,7 @@ public final class AgentLoop {
     private final LoopGuard guard;
     private final ContextManager contextManager;
     private final SessionManager sessionManager;
+    private final CachePolicy cachePolicy;
 
     /**
      * 创建 Agent 执行循环（完整参数）。
@@ -93,6 +95,23 @@ public final class AgentLoop {
                      AgentTracer tracer,
                      ContextManager contextManager,
                      SessionManager sessionManager) {
+        this(llmProvider, toolExecutor, context, hooks, errorHandler, metrics, tracer,
+                contextManager, sessionManager, null);
+    }
+
+    /**
+     * 创建 Agent 执行循环（完整参数，含 CachePolicy）。
+     */
+    public AgentLoop(LlmProvider llmProvider,
+                     ToolExecutor toolExecutor,
+                     AgentContext context,
+                     List<LoopHook> hooks,
+                     AgentErrorHandler errorHandler,
+                     AgentMetrics metrics,
+                     AgentTracer tracer,
+                     ContextManager contextManager,
+                     SessionManager sessionManager,
+                     CachePolicy cachePolicy) {
         this.llmProvider = llmProvider;
         this.toolExecutor = toolExecutor;
         this.context = context;
@@ -103,6 +122,7 @@ public final class AgentLoop {
         this.guard = new LoopGuard(context.config());
         this.contextManager = contextManager;
         this.sessionManager = sessionManager;
+        this.cachePolicy = cachePolicy != null ? cachePolicy : CachePolicy.NOOP;
     }
 
     /**
@@ -179,6 +199,10 @@ public final class AgentLoop {
                         .tools(context.toolDefinitions())
                         .build();
 
+                if (cachePolicy != CachePolicy.NOOP) {
+                    request = cachePolicy.decide(request, llmProvider.capabilities());
+                }
+
                 metrics.recordLlmCall();
                 Instant llmStart = Instant.now();
                 ChatResponse response;
@@ -215,6 +239,15 @@ public final class AgentLoop {
                     totalInputTokens += response.usage().inputTokens();
                     totalOutputTokens += response.usage().outputTokens();
                     metrics.recordTokenUsage(response.usage().inputTokens(), response.usage().outputTokens());
+                    metrics.recordCacheTokens(response.usage().cacheCreationInputTokens(),
+                            response.usage().cacheReadInputTokens());
+                    if (response.usage().cacheReadInputTokens() > 0) {
+                        log.debug("Cache hit: {} tokens read, {} tokens created, hit rate: {}.{}%",
+                                response.usage().cacheReadInputTokens(),
+                                response.usage().cacheCreationInputTokens(),
+                                response.usage().cacheHitRateBp() / 100,
+                                response.usage().cacheHitRateBp() % 100);
+                    }
                     // MVP2: 将 API usage 写入 AgentContext，供 ContextManager 精确判断溢出
                     context.updateTokenUsage(response.usage());
                 }
@@ -381,6 +414,10 @@ public final class AgentLoop {
                         .tools(context.toolDefinitions())
                         .build();
 
+                if (cachePolicy != CachePolicy.NOOP) {
+                    request = cachePolicy.decide(request, llmProvider.capabilities());
+                }
+
                 publisher.submit(new AgentEvent.LlmCallStart(Instant.now(), iteration));
                 Instant llmStart = Instant.now();
 
@@ -432,6 +469,8 @@ public final class AgentLoop {
                 if (response.usage() != null) {
                     totalInputTokens += response.usage().inputTokens();
                     totalOutputTokens += response.usage().outputTokens();
+                    metrics.recordCacheTokens(response.usage().cacheCreationInputTokens(),
+                            response.usage().cacheReadInputTokens());
                     context.updateTokenUsage(response.usage());
 
                     publisher.submit(new AgentEvent.LlmCallEnd(Instant.now(), iteration,

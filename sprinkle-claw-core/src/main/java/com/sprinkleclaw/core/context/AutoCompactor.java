@@ -403,6 +403,9 @@ public final class AutoCompactor {
                 case ContentBlock.TextBlock tb -> sb.append(tb.text());
                 case ContentBlock.ToolUseBlock tu -> sb.append("[tool_use: ").append(tu.name()).append("]");
                 case ContentBlock.ThinkingBlock tk -> sb.append("[thinking]");
+                case ContentBlock.ImageBlock i -> sb.append("[image: ").append(i.mediaType()).append("]");
+                case ContentBlock.DocumentBlock d -> sb.append("[document: ").append(d.name()).append("]");
+                case ContentBlock.AudioBlock a -> sb.append("[audio]");
             }
         }
         return sb.toString();

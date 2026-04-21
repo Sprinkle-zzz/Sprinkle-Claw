@@ -1,5 +1,6 @@
 package com.sprinkleclaw.protocol.llm;
 
+import com.sprinkleclaw.protocol.message.CacheControl;
 import com.sprinkleclaw.protocol.message.Message;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 
@@ -9,14 +10,16 @@ import java.util.Optional;
 /**
  * LLM 聊天请求，包含系统提示、对话历史、可用工具及生成参数。
  *
- * @param systemPrompt   系统提示词
- * @param messages       对话历史消息列表
- * @param tools          可用工具定义列表
- * @param maxTokens      最大生成 token 数
- * @param temperature    温度参数（控制随机性）
- * @param stopSequences  停止序列列表
- * @param thinkingConfig 思考/推理模式配置（Anthropic 使用 budgetTokens，OpenAI 使用 reasoningEffort）
- * @param toolChoice     工具选择策略（AUTO/NONE/REQUIRED/Forced），控制 LLM 是否及如何调用工具
+ * @param systemPrompt       系统提示词
+ * @param messages           对话历史消息列表
+ * @param tools              可用工具定义列表
+ * @param maxTokens          最大生成 token 数
+ * @param temperature        温度参数（控制随机性）
+ * @param stopSequences      停止序列列表
+ * @param thinkingConfig     思考/推理模式配置（Anthropic 使用 budgetTokens，OpenAI 使用 reasoningEffort）
+ * @param toolChoice         工具选择策略（AUTO/NONE/REQUIRED/Forced），控制 LLM 是否及如何调用工具
+ * @param systemCacheControl 系统提示词的缓存控制标记
+ * @param toolsCacheControl  工具定义的缓存控制标记
  *
  * @author sprinkle
  * @since 2026/3/17
@@ -29,16 +32,34 @@ public record ChatRequest(
         double temperature,
         List<String> stopSequences,
         Optional<ThinkingConfig> thinkingConfig,
-        ToolChoice toolChoice
+        ToolChoice toolChoice,
+        CacheControl systemCacheControl,
+        CacheControl toolsCacheControl
 ) {
 
     /**
-     * Compact constructor：兜底 null toolChoice 为 AUTO，保持向后兼容。
+     * Compact constructor：兜底 null 值，保持向后兼容。
      */
     public ChatRequest {
         if (toolChoice == null) {
             toolChoice = ToolChoice.AUTO;
         }
+        if (systemCacheControl == null) {
+            systemCacheControl = CacheControl.NONE;
+        }
+        if (toolsCacheControl == null) {
+            toolsCacheControl = CacheControl.NONE;
+        }
+    }
+
+    /**
+     * 兼容旧的 8 参数构造器（不带缓存控制）。
+     */
+    public ChatRequest(String systemPrompt, List<Message> messages, List<ToolDefinition> tools,
+                       int maxTokens, double temperature, List<String> stopSequences,
+                       Optional<ThinkingConfig> thinkingConfig, ToolChoice toolChoice) {
+        this(systemPrompt, messages, tools, maxTokens, temperature, stopSequences,
+                thinkingConfig, toolChoice, CacheControl.NONE, CacheControl.NONE);
     }
 
     /**
@@ -65,11 +86,30 @@ public record ChatRequest(
         record Required() implements ToolChoice {}
         record Forced(String toolName) implements ToolChoice {}
     }
+
     /**
      * 创建构建器实例。
      */
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * 从当前实例创建构建器（用于修改个别字段后重建）。
+     */
+    public Builder toBuilder() {
+        Builder b = new Builder();
+        b.systemPrompt = this.systemPrompt;
+        b.messages = this.messages;
+        b.tools = this.tools;
+        b.maxTokens = this.maxTokens;
+        b.temperature = this.temperature;
+        b.stopSequences = this.stopSequences;
+        b.thinkingConfig = this.thinkingConfig.orElse(null);
+        b.toolChoice = this.toolChoice;
+        b.systemCacheControl = this.systemCacheControl;
+        b.toolsCacheControl = this.toolsCacheControl;
+        return b;
     }
 
     /**
@@ -84,6 +124,8 @@ public record ChatRequest(
         private List<String> stopSequences = List.of();
         private ThinkingConfig thinkingConfig = null;
         private ToolChoice toolChoice = ToolChoice.AUTO;
+        private CacheControl systemCacheControl = CacheControl.NONE;
+        private CacheControl toolsCacheControl = CacheControl.NONE;
 
         private Builder() {
         }
@@ -120,9 +162,6 @@ public record ChatRequest(
 
         /**
          * 设置思考/推理模式配置。
-         *
-         * @param thinkingConfig 思考配置
-         * @return 构建器自身
          */
         public Builder thinkingConfig(ThinkingConfig thinkingConfig) {
             this.thinkingConfig = thinkingConfig;
@@ -131,12 +170,25 @@ public record ChatRequest(
 
         /**
          * 设置工具选择策略。
-         *
-         * @param toolChoice 工具选择策略
-         * @return 构建器自身
          */
         public Builder toolChoice(ToolChoice toolChoice) {
             this.toolChoice = toolChoice;
+            return this;
+        }
+
+        /**
+         * 设置系统提示词的缓存控制标记。
+         */
+        public Builder systemCacheControl(CacheControl cacheControl) {
+            this.systemCacheControl = cacheControl;
+            return this;
+        }
+
+        /**
+         * 设置工具定义的缓存控制标记。
+         */
+        public Builder toolsCacheControl(CacheControl cacheControl) {
+            this.toolsCacheControl = cacheControl;
             return this;
         }
 
@@ -145,7 +197,8 @@ public record ChatRequest(
          */
         public ChatRequest build() {
             return new ChatRequest(systemPrompt, messages, tools, maxTokens, temperature,
-                    stopSequences, Optional.ofNullable(thinkingConfig), toolChoice);
+                    stopSequences, Optional.ofNullable(thinkingConfig), toolChoice,
+                    systemCacheControl, toolsCacheControl);
         }
     }
 }

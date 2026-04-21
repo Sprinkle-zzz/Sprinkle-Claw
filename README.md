@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP6-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP7-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -84,12 +84,16 @@
 | **MCP 协议适配（官方 SDK）**     | 基于 `io.modelcontextprotocol.sdk:mcp:1.1.1`（optional）+ STDIO/SSE/STREAMABLE_HTTP 三传输 + Client/Server 双模式 + 30s ping 健康探活 + 运行时降级 |
 | **企业级网关**                | 过滤器链：API Key / JWT 认证 + Bucket4j 限流 + 多租户配额 + IP ACL + 异步审计 + Token 计量 + Prompt 注入检测 + 输出敏感信息过滤 |
 | **Spring Boot Starter**     | `application.yml` 一行集成：自动装配 `Claw` / `GatewayFilterChain`，含 Actuator HealthIndicator + Micrometer 指标 |
+| **Prompt Caching**          | `CachePolicy` SPI + 4 策略（Manual / AutoSystem / AutoSystemAndTools / Aggressive）+ 缓存命中率统计 + AgentLoop 自动注入 |
+| **多模态内容**               | `ImageBlock` / `DocumentBlock` / `AudioBlock` 三种多模态 ContentBlock + base64/URL 双模式 + MIME 常量 |
+| **多模态能力声明**            | `supportsVision` / `supportsPdfInput` / `supportsAudioInput` / `supportsPromptCache` 四能力字段 |
 
 ### 📋 规划中
 
 | 特性 | 目标阶段 |
 |------|---------|
-| Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离 | MVP7 |
+| Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离 | MVP8 |
+| 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | MVP9 |
 
 ---
 
@@ -160,7 +164,7 @@ public class MyTools {
 ┌────────────────────────────────────────────────────────────────┐
 │  sprinkle-claw-gateway    │  sprinkle-claw-spring-boot-starter │  可选服务层 (规划)
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-team       │  sprinkle-claw-worktree            │  可选扩展层 (规划)
+│  sprinkle-claw-team       │  sprinkle-claw-worktree            │  可选扩展层 (MVP8)
 ├───────────────────────────┼────────────────────────────────────┤
 │  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 ✅
 ├───────────────────────────┼────────────────────────────────────┤
@@ -197,8 +201,8 @@ public class MyTools {
 | `sprinkle-claw-mcp` | MCP 协议适配（官方 SDK 1.1.1 桥接 + Client/Server 双模式 + STDIO/SSE/StreamableHTTP 传输 + 健康探活） | tool-api | ✅ 已实现 |
 | `sprinkle-claw-gateway` | 企业级管控：认证（API Key / JWT）/ Bucket4j 限流 / 多租户配额 / IP ACL / 异步审计 / Token 计量 / Prompt 注入检测 / 输出敏感过滤 | protocol | ✅ 已实现 |
 | `sprinkle-claw-spring-boot-starter` | Spring Boot 3.2+ 自动配置（`Claw` bean + Gateway filter chain + Actuator Health + Micrometer） | bootstrap, gateway | ✅ 已实现 |
-| `sprinkle-claw-team` | Agent 团队 + 协议 + 自主 Agent（实验性） | core, agent-ext | 📋 MVP7 |
-| `sprinkle-claw-worktree` | Git Worktree 隔离 + EventBus（实验性） | core, agent-ext | 📋 MVP7 |
+| `sprinkle-claw-team` | Agent 团队 + 协议 + 自主 Agent（实验性） | core, agent-ext | 📋 MVP8 |
+| `sprinkle-claw-worktree` | Git Worktree 隔离 + EventBus（实验性） | core, agent-ext | 📋 MVP8 |
 
 ---
 
@@ -249,8 +253,9 @@ sprinkle-claw/
 | **MVP4** | AgentLoop 流式 (AgentEvent) + LLM 流式 + 引擎韧性（错误恢复 / Fallback / 工具分级 / Hook 增强）+ 状态持久化 + HITL 审批 | ✅ 已完成 |
 | **MVP5** | ToolChoice 策略 + Ollama Provider + @Agent 声明式 + 六模式 Workflow 编排 + MCP 协议适配（自研） | ✅ 已完成 |
 | **MVP6** | 企业级网关（认证/限流/多租户/ACL/审计/计量/安全）+ Spring Boot Starter（自动配置 + Actuator + Micrometer）+ MCP 迁移至官方 SDK | ✅ 已完成 |
-| **MVP7** | Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离（实验性） | 📋 计划中 |
-| **MVP8** | 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | 📋 计划中 |
+| **MVP7** | Prompt Caching（CachePolicy SPI + 4 策略 + 命中率统计）+ 多模态内容（Image/Document/Audio ContentBlock）+ 多模态能力声明 | ✅ 已完成 |
+| **MVP8** | Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离（实验性） | 📋 计划中 |
+| **MVP9** | 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | 📋 计划中 |
 
 ---
 

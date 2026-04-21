@@ -42,4 +42,12 @@ public interface AgentMetrics {
      * @param outputTokens 输出 token 数
      */
     void recordTokenUsage(int inputTokens, int outputTokens);
+
+    /**
+     * 记录缓存 token 数据。
+     *
+     * @param cacheCreation 缓存创建写入 token 数
+     * @param cacheRead     缓存读取命中 token 数
+     */
+    default void recordCacheTokens(int cacheCreation, int cacheRead) {}
 }
