@@ -162,12 +162,25 @@ final class OllamaProtocolMapper {
                 ObjectNode msgNode = messagesArray.addObject();
                 msgNode.put("role", "user");
                 StringBuilder text = new StringBuilder();
+                List<String> base64Images = new ArrayList<>();
                 for (ContentBlock block : u.content()) {
                     if (block instanceof ContentBlock.TextBlock t) {
                         text.append(t.text());
+                    } else if (block instanceof ContentBlock.ImageBlock i) {
+                        if (i.base64Data() != null) {
+                            base64Images.add(i.base64Data());
+                        }
+                    } else if (block instanceof ContentBlock.DocumentBlock) {
+                        text.append("[Unsupported: Document content cannot be processed by this model]");
+                    } else if (block instanceof ContentBlock.AudioBlock) {
+                        text.append("[Unsupported: Audio content cannot be processed by this model]");
                     }
                 }
                 msgNode.put("content", text.toString());
+                if (!base64Images.isEmpty()) {
+                    ArrayNode imagesArray = msgNode.putArray("images");
+                    base64Images.forEach(imagesArray::add);
+                }
             }
             case Message.AssistantMessage a -> {
                 ObjectNode msgNode = messagesArray.addObject();

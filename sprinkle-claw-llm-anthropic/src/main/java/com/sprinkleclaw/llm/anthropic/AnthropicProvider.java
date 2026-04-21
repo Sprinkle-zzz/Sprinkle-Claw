@@ -67,6 +67,10 @@ public final class AnthropicProvider implements LlmProvider {
                 .supportsToolChoice(true)
                 .supportsStreaming(true)
                 .supportsToolUse(true)
+                .supportsPromptCache(true)
+                .supportsVision(true)
+                .supportsPdfInput(true)
+                .supportsAudioInput(false)
                 .build();
     }
 
@@ -274,7 +278,15 @@ public final class AnthropicProvider implements LlmProvider {
         }
 
         if (!request.systemPrompt().isEmpty()) {
-            root.put("system", request.systemPrompt());
+            if (request.systemCacheControl() instanceof com.sprinkleclaw.protocol.message.CacheControl.Ephemeral) {
+                ArrayNode systemArray = root.putArray("system");
+                ObjectNode textNode = systemArray.addObject();
+                textNode.put("type", "text");
+                textNode.put("text", request.systemPrompt());
+                addCacheControl(textNode, request.systemCacheControl());
+            } else {
+                root.put("system", request.systemPrompt());
+            }
         }
 
         ArrayNode messagesArray = root.putArray("messages");
@@ -284,11 +296,16 @@ public final class AnthropicProvider implements LlmProvider {
 
         if (!request.tools().isEmpty()) {
             ArrayNode toolsArray = root.putArray("tools");
-            for (ToolDefinition tool : request.tools()) {
+            List<ToolDefinition> toolList = request.tools();
+            for (int i = 0; i < toolList.size(); i++) {
+                ToolDefinition tool = toolList.get(i);
                 ObjectNode toolNode = toolsArray.addObject();
                 toolNode.put("name", tool.name());
                 toolNode.put("description", tool.description());
                 toolNode.set("input_schema", objectMapper.valueToTree(tool.inputSchema()));
+                if (i == toolList.size() - 1) {
+                    addCacheControl(toolNode, request.toolsCacheControl());
+                }
             }
 
             // toolChoice 序列化：AUTO → 省略；REQUIRED → any；NONE → none；Forced → {type: "tool", name}
@@ -309,11 +326,7 @@ public final class AnthropicProvider implements LlmProvider {
                 msgNode.put("role", "user");
                 ArrayNode contentArray = msgNode.putArray("content");
                 for (ContentBlock block : u.content()) {
-                    if (block instanceof ContentBlock.TextBlock t) {
-                        contentArray.addObject()
-                                .put("type", "text")
-                                .put("text", t.text());
-                    }
+                    serializeUserContentBlock(block, contentArray);
                 }
             }
             case Message.AssistantMessage a -> {
@@ -322,19 +335,28 @@ public final class AnthropicProvider implements LlmProvider {
                 ArrayNode contentArray = msgNode.putArray("content");
                 for (ContentBlock block : a.content()) {
                     switch (block) {
-                        case ContentBlock.TextBlock t -> contentArray.addObject()
-                                .put("type", "text")
-                                .put("text", t.text());
+                        case ContentBlock.TextBlock t -> {
+                            ObjectNode node = contentArray.addObject()
+                                    .put("type", "text")
+                                    .put("text", t.text());
+                            addCacheControl(node, t.cacheControl());
+                        }
                         case ContentBlock.ToolUseBlock t -> {
                             ObjectNode toolNode = contentArray.addObject();
                             toolNode.put("type", "tool_use");
                             toolNode.put("id", t.id());
                             toolNode.put("name", t.name());
                             toolNode.set("input", objectMapper.valueToTree(t.input()));
+                            addCacheControl(toolNode, t.cacheControl());
                         }
                         case ContentBlock.ThinkingBlock t -> contentArray.addObject()
                                 .put("type", "thinking")
                                 .put("thinking", t.thinking());
+                        case ContentBlock.ImageBlock i -> serializeImageBlock(i, contentArray);
+                        case ContentBlock.DocumentBlock d -> serializeDocumentBlock(d, contentArray);
+                        case ContentBlock.AudioBlock ignored -> contentArray.addObject()
+                                .put("type", "text")
+                                .put("text", "[Unsupported: Audio content cannot be processed by this model]");
                     }
                 }
             }
@@ -386,9 +408,13 @@ public final class AnthropicProvider implements LlmProvider {
             StopReason stopReason = mapStopReason(
                     node.has("stop_reason") ? node.get("stop_reason").asText() : "end_turn");
 
-            Usage usage = new Usage(
-                    node.at("/usage/input_tokens").asInt(0),
-                    node.at("/usage/output_tokens").asInt(0));
+            JsonNode usageNode = node.get("usage");
+            int inputTokens = usageNode != null ? usageNode.path("input_tokens").asInt(0) : 0;
+            int outputTokens = usageNode != null ? usageNode.path("output_tokens").asInt(0) : 0;
+            int reasoningTokens = 0;
+            int cacheCreation = usageNode != null ? usageNode.path("cache_creation_input_tokens").asInt(0) : 0;
+            int cacheRead = usageNode != null ? usageNode.path("cache_read_input_tokens").asInt(0) : 0;
+            Usage usage = new Usage(inputTokens, outputTokens, reasoningTokens, cacheCreation, cacheRead);
 
             String modelId = node.has("model") ? node.get("model").asText() : "";
 
@@ -396,6 +422,72 @@ public final class AnthropicProvider implements LlmProvider {
 
         } catch (Exception e) {
             throw new LlmException(ErrorKind.UNKNOWN, "Failed to parse response: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 序列化 UserMessage 中的 ContentBlock 到 Anthropic JSON。
+     */
+    private void serializeUserContentBlock(ContentBlock block, ArrayNode contentArray) {
+        switch (block) {
+            case ContentBlock.TextBlock t -> {
+                ObjectNode node = contentArray.addObject()
+                        .put("type", "text")
+                        .put("text", t.text());
+                addCacheControl(node, t.cacheControl());
+            }
+            case ContentBlock.ImageBlock i -> serializeImageBlock(i, contentArray);
+            case ContentBlock.DocumentBlock d -> serializeDocumentBlock(d, contentArray);
+            case ContentBlock.AudioBlock ignored -> contentArray.addObject()
+                    .put("type", "text")
+                    .put("text", "[Unsupported: Audio content cannot be processed by this model]");
+            case ContentBlock.ToolUseBlock t -> {
+                ObjectNode toolNode = contentArray.addObject();
+                toolNode.put("type", "tool_use");
+                toolNode.put("id", t.id());
+                toolNode.put("name", t.name());
+                toolNode.set("input", objectMapper.valueToTree(t.input()));
+                addCacheControl(toolNode, t.cacheControl());
+            }
+            case ContentBlock.ThinkingBlock t -> contentArray.addObject()
+                    .put("type", "thinking")
+                    .put("thinking", t.thinking());
+        }
+    }
+
+    private void serializeImageBlock(ContentBlock.ImageBlock block, ArrayNode contentArray) {
+        ObjectNode node = contentArray.addObject();
+        node.put("type", "image");
+        ObjectNode source = node.putObject("source");
+        if (block.base64Data() != null) {
+            source.put("type", "base64");
+            source.put("media_type", block.mediaType());
+            source.put("data", block.base64Data());
+        } else {
+            source.put("type", "url");
+            source.put("url", block.url());
+        }
+        addCacheControl(node, block.cacheControl());
+    }
+
+    private void serializeDocumentBlock(ContentBlock.DocumentBlock block, ArrayNode contentArray) {
+        ObjectNode node = contentArray.addObject();
+        node.put("type", "document");
+        ObjectNode source = node.putObject("source");
+        if (block.base64Data() != null) {
+            source.put("type", "base64");
+            source.put("media_type", block.mediaType());
+            source.put("data", block.base64Data());
+        } else {
+            source.put("type", "url");
+            source.put("url", block.url());
+        }
+        addCacheControl(node, block.cacheControl());
+    }
+
+    private void addCacheControl(ObjectNode node, com.sprinkleclaw.protocol.message.CacheControl cc) {
+        if (cc instanceof com.sprinkleclaw.protocol.message.CacheControl.Ephemeral) {
+            node.putObject("cache_control").put("type", "ephemeral");
         }
     }
 

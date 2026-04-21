@@ -3,6 +3,7 @@ package com.sprinkleclaw.llm.ollama;
 import com.sprinkleclaw.llm.LlmCapabilities;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 按模型名推断 Ollama 模型的能力声明。
@@ -13,17 +14,25 @@ import java.util.Map;
  */
 public final class OllamaCapabilityRegistry {
 
+    private static final Set<String> VISION_MODELS = Set.of(
+            "llava", "bakllava", "moondream", "qwen2-vl"
+    );
+
     private static final Map<String, LlmCapabilities> KNOWN = Map.ofEntries(
-            Map.entry("llama3.3", caps(128_000, 8192, true)),
-            Map.entry("llama3.1", caps(128_000, 4096, true)),
-            Map.entry("llama3.2", caps(128_000, 4096, true)),
-            Map.entry("qwen2.5", caps(128_000, 8192, true)),
-            Map.entry("qwen3", caps(128_000, 8192, true)),
-            Map.entry("deepseek-r1", caps(64_000, 8192, true)),
-            Map.entry("mistral", caps(32_000, 4096, false)),
-            Map.entry("gemma2", caps(8_192, 4096, false)),
-            Map.entry("phi3", caps(128_000, 4096, false)),
-            Map.entry("codellama", caps(16_000, 4096, false))
+            Map.entry("llama3.3", caps(128_000, 8192, true, false)),
+            Map.entry("llama3.1", caps(128_000, 4096, true, false)),
+            Map.entry("llama3.2", caps(128_000, 4096, true, false)),
+            Map.entry("qwen2.5", caps(128_000, 8192, true, false)),
+            Map.entry("qwen3", caps(128_000, 8192, true, false)),
+            Map.entry("deepseek-r1", caps(64_000, 8192, true, false)),
+            Map.entry("mistral", caps(32_000, 4096, false, false)),
+            Map.entry("gemma2", caps(8_192, 4096, false, false)),
+            Map.entry("phi3", caps(128_000, 4096, false, false)),
+            Map.entry("codellama", caps(16_000, 4096, false, false)),
+            Map.entry("llava", caps(4_096, 2048, false, true)),
+            Map.entry("bakllava", caps(4_096, 2048, false, true)),
+            Map.entry("moondream", caps(4_096, 2048, false, true)),
+            Map.entry("qwen2-vl", caps(32_000, 4096, false, true))
     );
 
     /**
@@ -32,6 +41,14 @@ public final class OllamaCapabilityRegistry {
     public static LlmCapabilities resolve(String model) {
         String key = stripTag(model);
         return KNOWN.getOrDefault(key, conservative());
+    }
+
+    /**
+     * 判断模型是否支持 Vision（图片输入）。
+     */
+    public static boolean supportsVision(String model) {
+        String key = stripTag(model);
+        return VISION_MODELS.contains(key);
     }
 
     /**
@@ -46,10 +63,14 @@ public final class OllamaCapabilityRegistry {
                 .supportsToolChoice(false)
                 .supportsStreaming(true)
                 .supportsToolUse(false)
+                .supportsPromptCache(false)
+                .supportsVision(false)
+                .supportsPdfInput(false)
+                .supportsAudioInput(false)
                 .build();
     }
 
-    private static LlmCapabilities caps(int ctx, int maxOut, boolean toolUse) {
+    private static LlmCapabilities caps(int ctx, int maxOut, boolean toolUse, boolean vision) {
         return LlmCapabilities.builder()
                 .supportsReasoning(false)
                 .supportsStructuredOutput(false)
@@ -58,6 +79,10 @@ public final class OllamaCapabilityRegistry {
                 .supportsToolChoice(toolUse)
                 .supportsStreaming(true)
                 .supportsToolUse(toolUse)
+                .supportsPromptCache(false)
+                .supportsVision(vision)
+                .supportsPdfInput(false)
+                .supportsAudioInput(false)
                 .build();
     }
 
