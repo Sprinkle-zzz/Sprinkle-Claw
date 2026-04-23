@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">🦀 Sprinkle-Claw</h1>
+  <h1 align="center">Sprinkle-Claw</h1>
   <p align="center">
     <strong>协议驱动的 Java AI Agent SDK</strong><br/>
     <em>Protocol-driven, embeddable AI Agent SDK for Java 21+</em>
@@ -92,8 +92,11 @@
 
 | 特性 | 目标阶段 |
 |------|---------|
-| Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离 | MVP8 |
-| 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | MVP9 |
+| 工具注册 opt-in 重构 + 异步 API + SessionSnapshotSerializer | MVP8 Phase 1 |
+| Skill 编程式 API + TaskStore 可注入 | MVP8 Phase 1 |
+| HttpClient 连接池统一 + StructuredTaskScope 工具并发优化 | MVP8 Phase 2 |
+| LongTermMemory SPI + MemoryEnricherHook（双层记忆架构） | MVP8 Phase 2 |
+| Agent 评估框架（LLM-as-judge）+ 业务嵌入示例 | MVP8 Phase 3 |
 
 ---
 
@@ -162,9 +165,7 @@ public class MyTools {
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  sprinkle-claw-gateway    │  sprinkle-claw-spring-boot-starter │  可选服务层 (规划)
-├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-team       │  sprinkle-claw-worktree            │  可选扩展层 (MVP8)
+│  sprinkle-claw-gateway    │  sprinkle-claw-spring-boot-starter │  可选服务层 ✅
 ├───────────────────────────┼────────────────────────────────────┤
 │  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 ✅
 ├───────────────────────────┼────────────────────────────────────┤
@@ -201,8 +202,6 @@ public class MyTools {
 | `sprinkle-claw-mcp` | MCP 协议适配（官方 SDK 1.1.1 桥接 + Client/Server 双模式 + STDIO/SSE/StreamableHTTP 传输 + 健康探活） | tool-api | ✅ 已实现 |
 | `sprinkle-claw-gateway` | 企业级管控：认证（API Key / JWT）/ Bucket4j 限流 / 多租户配额 / IP ACL / 异步审计 / Token 计量 / Prompt 注入检测 / 输出敏感过滤 | protocol | ✅ 已实现 |
 | `sprinkle-claw-spring-boot-starter` | Spring Boot 3.2+ 自动配置（`Claw` bean + Gateway filter chain + Actuator Health + Micrometer） | bootstrap, gateway | ✅ 已实现 |
-| `sprinkle-claw-team` | Agent 团队 + 协议 + 自主 Agent（实验性） | core, agent-ext | 📋 MVP8 |
-| `sprinkle-claw-worktree` | Git Worktree 隔离 + EventBus（实验性） | core, agent-ext | 📋 MVP8 |
 
 ---
 
@@ -254,8 +253,7 @@ sprinkle-claw/
 | **MVP5** | ToolChoice 策略 + Ollama Provider + @Agent 声明式 + 六模式 Workflow 编排 + MCP 协议适配（自研） | ✅ 已完成 |
 | **MVP6** | 企业级网关（认证/限流/多租户/ACL/审计/计量/安全）+ Spring Boot Starter（自动配置 + Actuator + Micrometer）+ MCP 迁移至官方 SDK | ✅ 已完成 |
 | **MVP7** | Prompt Caching（CachePolicy SPI + 4 策略 + 命中率统计）+ 多模态内容（Image/Document/Audio ContentBlock）+ 多模态能力声明 | ✅ 已完成 |
-| **MVP8** | Agent 团队 + 团队协议 + 自主 Agent + 工作树隔离（实验性） | 📋 计划中 |
-| **MVP9** | 媒体处理 + 渠道扩展 + 浏览器自动化 + 沙箱执行 + 性能优化 | 📋 计划中 |
+| **MVP8** | SDK 核心清理 + 生产就绪：工具注册 opt-in 重构 + 异步 API + 双层记忆架构（SessionStore + MemoryStore）+ 性能优化（HttpClient 连接池 + StructuredTaskScope）+ Agent 评估框架 | 📋 计划中 |
 
 ---
 
