@@ -51,6 +51,7 @@
         <module>sprinkle-claw-gateway</module>
         <module>sprinkle-claw-spring-boot-starter</module>
         <module>sprinkle-claw-benchmark</module>
+        <module>sprinkle-claw-examples</module>
     </modules>
 
     <properties>
