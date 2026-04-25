@@ -54,9 +54,7 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
     public OpenAiCompatibleProvider(LlmConfig config) {
         this.config = config;
         this.objectMapper = new ObjectMapper();
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(config.timeout())
-                .build();
+        this.httpClient = SharedHttpClient.get();
         this.baseUrl = config.baseUrl().isEmpty() ? DEFAULT_BASE_URL : config.baseUrl();
     }
 
@@ -155,7 +153,9 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
             httpResponse.body().forEach(line -> {
                 SseLineParser.SseEvent sseEvent = sseParser.feed(line);
-                if (sseEvent == null || sseEvent.isDone()) return;
+                if (sseEvent == null || sseEvent.isDone()) {
+                    return;
+                }
 
                 try {
                     dispatchSseEvent(sseEvent, collector, callback);
@@ -182,8 +182,8 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
      * 分发 OpenAI SSE 事件。
      */
     private void dispatchSseEvent(SseLineParser.SseEvent sseEvent,
-                                   OpenAiResponseCollector collector,
-                                   StreamCallback callback) throws Exception {
+                                  OpenAiResponseCollector collector,
+                                  StreamCallback callback) throws Exception {
         JsonNode data = objectMapper.readTree(sseEvent.data());
 
         // 提取 model
@@ -202,7 +202,9 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
         // 提取 choices[0]
         JsonNode choices = data.get("choices");
-        if (choices == null || !choices.isArray() || choices.isEmpty()) return;
+        if (choices == null || !choices.isArray() || choices.isEmpty()) {
+            return;
+        }
         JsonNode choice = choices.get(0);
 
         // finish_reason
@@ -213,7 +215,9 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
         // delta
         JsonNode delta = choice.get("delta");
-        if (delta == null) return;
+        if (delta == null) {
+            return;
+        }
 
         // 文本内容
         JsonNode contentNode = delta.get("content");
@@ -460,8 +464,10 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
             case ContentBlock.AudioBlock ignored -> contentArray.addObject()
                     .put("type", "text")
                     .put("text", "[Unsupported: Audio content cannot be processed by this model]");
-            case ContentBlock.ToolUseBlock ignored -> {}
-            case ContentBlock.ThinkingBlock ignored -> {}
+            case ContentBlock.ToolUseBlock ignored -> {
+            }
+            case ContentBlock.ThinkingBlock ignored -> {
+            }
         }
     }
 
@@ -471,12 +477,9 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
      */
     private void serializeToolChoice(ChatRequest.ToolChoice toolChoice, ObjectNode root) {
         switch (toolChoice) {
-            case ChatRequest.ToolChoice.Auto ignored ->
-                    root.put("tool_choice", "auto");
-            case ChatRequest.ToolChoice.None ignored ->
-                    root.put("tool_choice", "none");
-            case ChatRequest.ToolChoice.Required ignored ->
-                    root.put("tool_choice", "required");
+            case ChatRequest.ToolChoice.Auto ignored -> root.put("tool_choice", "auto");
+            case ChatRequest.ToolChoice.None ignored -> root.put("tool_choice", "none");
+            case ChatRequest.ToolChoice.Required ignored -> root.put("tool_choice", "required");
             case ChatRequest.ToolChoice.Forced f -> {
                 ObjectNode tc = root.putObject("tool_choice");
                 tc.put("type", "function");

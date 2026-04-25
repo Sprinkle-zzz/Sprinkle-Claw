@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sprinkleclaw.llm.LlmException;
 import com.sprinkleclaw.llm.LlmException.ErrorKind;
+import com.sprinkleclaw.llm.SharedHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,9 +32,7 @@ final class OllamaHttpClient {
 
     OllamaHttpClient(OllamaConfig config) {
         this.config = config;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(config.timeout())
-                .build();
+        this.httpClient = SharedHttpClient.get();
     }
 
     /**
@@ -111,10 +110,14 @@ final class OllamaHttpClient {
                     .timeout(config.timeout())
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) return List.of();
+            if (response.statusCode() >= 400) {
+                return List.of();
+            }
             JsonNode root = MAPPER.readTree(response.body());
             JsonNode models = root.get("models");
-            if (models == null || !models.isArray()) return List.of();
+            if (models == null || !models.isArray()) {
+                return List.of();
+            }
             var result = new java.util.ArrayList<String>();
             for (JsonNode m : models) {
                 result.add(m.path("name").asText());
@@ -127,7 +130,9 @@ final class OllamaHttpClient {
     }
 
     private void handleHttpError(int status, String body) throws LlmException {
-        if (status >= 200 && status < 300) return;
+        if (status >= 200 && status < 300) {
+            return;
+        }
 
         String message = extractErrorMessage(body);
         if (message.contains("not found")) {
@@ -146,8 +151,11 @@ final class OllamaHttpClient {
     private String extractErrorMessage(String body) {
         try {
             JsonNode node = MAPPER.readTree(body);
-            if (node.has("error")) return node.get("error").asText();
-        } catch (Exception ignored) {}
+            if (node.has("error")) {
+                return node.get("error").asText();
+            }
+        } catch (Exception ignored) {
+        }
         return body;
     }
 }
