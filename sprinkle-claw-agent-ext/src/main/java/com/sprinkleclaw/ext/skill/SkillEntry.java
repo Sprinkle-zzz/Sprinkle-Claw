@@ -21,4 +21,18 @@ public record SkillEntry(
         List<String> tags,
         String body,
         Path path
-) {}
+) {
+    /**
+     * 编程式构造（无文件路径）。
+     */
+    public SkillEntry(String name, String description, String body) {
+        this(name, description, List.of(), body, null);
+    }
+
+    /**
+     * 带标签的编程式构造。
+     */
+    public SkillEntry(String name, String description, List<String> tags, String body) {
+        this(name, description, tags, body, null);
+    }
+}

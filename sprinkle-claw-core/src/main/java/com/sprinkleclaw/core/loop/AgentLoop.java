@@ -210,6 +210,7 @@ public final class AgentLoop {
                     response = llmProvider.chat(request);
                 } catch (Exception e) {
                     metrics.recordLlmError();
+                    log.warn("LLM 调用失败 (迭代 {}): {}", iteration, e.getMessage(), e);
                     AgentErrorHandler.ErrorDecision decision = errorHandler.handle(context, e, iteration);
                     switch (decision) {
                         case AgentErrorHandler.ErrorDecision.Abort abort -> {
@@ -445,6 +446,7 @@ public final class AgentLoop {
                         }
                     });
                 } catch (Exception e) {
+                    log.warn("LLM 流式调用失败 (迭代 {}): {}", iter, e.getMessage(), e);
                     publisher.submit(AgentEvent.agentError(e, AgentEvent.ErrorPhase.LLM_CALL));
                     AgentErrorHandler.ErrorDecision decision = errorHandler.handle(context, e, iter);
                     switch (decision) {

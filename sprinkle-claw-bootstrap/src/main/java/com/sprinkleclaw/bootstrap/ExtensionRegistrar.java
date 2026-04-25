@@ -47,16 +47,20 @@ final class ExtensionRegistrar {
     /**
      * 根据 AgentConfig 注册扩展工具。
      *
-     * @param registry    工具注册表
-     * @param config      Agent 配置
-     * @param llmProvider LLM 提供者（SubAgent 需要）
-     * @param systemPrompt 系统提示词（SubAgent 需要）
-     * @param hooks       Hook 列表（SubAgent 需要用于过滤传递给子 Agent）
+     * @param registry           工具注册表
+     * @param config             Agent 配置
+     * @param llmProvider        LLM 提供者（SubAgent 需要）
+     * @param systemPrompt       系统提示词（SubAgent 需要）
+     * @param hooks              Hook 列表（SubAgent 需要用于过滤传递给子 Agent）
+     * @param programmaticSkills 编程式注册的 Skill 列表
+     * @param customTaskStore    自定义 TaskStore 实例（可为 null）
      * @return 需要注册的 Hook 列表
      */
     static List<LoopHook> registerExtensions(ToolRegistry registry, AgentConfig config,
                                               LlmProvider llmProvider, String systemPrompt,
-                                              List<LoopHook> hooks) {
+                                              List<LoopHook> hooks,
+                                              List<ClawBuilder.SkillSpec> programmaticSkills,
+                                              Object customTaskStore) {
         if (!AGENT_EXT_AVAILABLE) {
             log.debug("agent-ext 不在 classpath 中，跳过扩展注册");
             return List.of();
@@ -72,24 +76,47 @@ final class ExtensionRegistrar {
             log.info("已启用 SubAgent 工具（maxIterations: {}）", config.subAgentMaxIterations());
         }
 
-        // Skill
+        // Skill（文件扫描 + 编程式注册合并）
         if (config.enableSkill()) {
             var skillLoader = new com.sprinkleclaw.ext.skill.SkillLoader();
             skillLoader.scanDirectory(config.skillsDirectory());
+            // MVP8: 编程式注册的 Skill 合并到 registry
+            if (programmaticSkills != null) {
+                for (ClawBuilder.SkillSpec spec : programmaticSkills) {
+                    var entry = new com.sprinkleclaw.ext.skill.SkillEntry(
+                            spec.name(), spec.description(), spec.tags(), spec.body(), null);
+                    skillLoader.registry().register(entry);
+                }
+            }
             registry.register(new com.sprinkleclaw.ext.skill.LoadSkillTool(skillLoader));
-            log.info("已启用 Skill 加载（目录: {}，发现 {} 个 Skill）",
-                    config.skillsDirectory(), skillLoader.registry().size());
+            int fileCount = skillLoader.registry().size()
+                    - (programmaticSkills != null ? programmaticSkills.size() : 0);
+            log.info("已启用 Skill（文件: {}，编程式: {}，共 {} 个）",
+                    Math.max(0, fileCount),
+                    programmaticSkills != null ? programmaticSkills.size() : 0,
+                    skillLoader.registry().size());
         }
 
-        // TaskBoard
+        // TaskBoard（MVP8: 支持自定义 TaskStore 注入）
         if (config.enableTaskBoard()) {
-            var taskStore = new com.sprinkleclaw.ext.task.FileTaskStore(config.tasksDirectory());
+            com.sprinkleclaw.ext.task.TaskStore taskStore;
+            if (customTaskStore != null) {
+                if (!(customTaskStore instanceof com.sprinkleclaw.ext.task.TaskStore ts)) {
+                    throw new IllegalArgumentException(
+                            "taskStore must implement com.sprinkleclaw.ext.task.TaskStore, got: "
+                                    + customTaskStore.getClass().getName());
+                }
+                taskStore = ts;
+                log.info("使用自定义 TaskStore: {}", taskStore.getClass().getSimpleName());
+            } else {
+                taskStore = new com.sprinkleclaw.ext.task.FileTaskStore(config.tasksDirectory());
+                log.info("使用默认 FileTaskStore（目录: {}）", config.tasksDirectory());
+            }
             var taskManager = new com.sprinkleclaw.ext.task.TaskManager(taskStore);
             registry.register(new com.sprinkleclaw.ext.task.TaskCreateTool(taskManager));
             registry.register(new com.sprinkleclaw.ext.task.TaskUpdateTool(taskManager));
             registry.register(new com.sprinkleclaw.ext.task.TaskListTool(taskManager));
             registry.register(new com.sprinkleclaw.ext.task.TaskGetTool(taskManager));
-            log.info("已启用持久化任务板（目录: {}）", config.tasksDirectory());
         }
 
         // Background Tasks

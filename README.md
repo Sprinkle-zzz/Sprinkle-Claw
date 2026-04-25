@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-MVP7-orange" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-MVP8-orange" alt="Status"/>
   </p>
   <p align="center">
     <a href="#核心特性">核心特性</a> •
@@ -87,16 +87,15 @@
 | **Prompt Caching**          | `CachePolicy` SPI + 4 策略（Manual / AutoSystem / AutoSystemAndTools / Aggressive）+ 缓存命中率统计 + AgentLoop 自动注入 |
 | **多模态内容**               | `ImageBlock` / `DocumentBlock` / `AudioBlock` 三种多模态 ContentBlock + base64/URL 双模式 + MIME 常量 |
 | **多模态能力声明**            | `supportsVision` / `supportsPdfInput` / `supportsAudioInput` / `supportsPromptCache` 四能力字段 |
-
-### 📋 规划中
-
-| 特性 | 目标阶段 |
-|------|---------|
-| 工具注册 opt-in 重构 + 异步 API + SessionSnapshotSerializer | MVP8 Phase 1 |
-| Skill 编程式 API + TaskStore 可注入 | MVP8 Phase 1 |
-| HttpClient 连接池统一 + StructuredTaskScope 工具并发优化 | MVP8 Phase 2 |
-| LongTermMemory SPI + MemoryEnricherHook（双层记忆架构） | MVP8 Phase 2 |
-| Agent 评估框架（LLM-as-judge）+ 业务嵌入示例 | MVP8 Phase 3 |
+| **工具注册 opt-in**          | 内置工具（bash/read/write/edit）从 SPI 自动注册改为 `enableFileTools()` / `enableBashTool()` / `enableCodingTools()` 显式启用 |
+| **异步 API**                | `runAsync()` / `chatAsync()` / `resumeAsync()` 返回 `CompletableFuture`，Virtual Thread 执行 + `AtomicBoolean` 并发守卫 |
+| **Skill 编程式 API**        | `ClawBuilder.addSkill()` 编程式注册 Skill，无需文件系统；`SkillEntry` 便捷构造器 |
+| **TaskStore 可注入**         | `ClawBuilder.taskStore(Object)` 替换默认 `FileTaskStore`，支持自定义存储后端 |
+| **SessionSnapshotSerializer** | 会话快照序列化工具类，处理 Message/ContentBlock 多态 + 6 种多模态类型 Jackson Mixin |
+| **HttpClient 连接池统一**     | `SharedHttpClient` DCL 单例 + HTTP/2 + Virtual Thread executor，三个 LLM Provider 共享连接池 |
+| **双层记忆架构**              | `MemoryStore` SPI（长期跨会话记忆）+ `InMemoryMemoryStore`（关键词匹配参考实现）+ `MemoryEnricherHook`（自动注入相关记忆） |
+| **Agent 评估框架**           | `AgentEvaluator`（LLM-as-judge）+ `EvalScenario` / `EvalResult` 数据模型，批量评估 Agent 质量 |
+| **示例项目**                 | 4 个示例：MinimalAgent / CustomerServiceAgent / CodingAgent / MultiAgentCollaboration |
 
 ---
 
@@ -119,26 +118,32 @@ mvn clean install -DskipTests
 
 ```java
 import com.sprinkleclaw.bootstrap.ClawBuilder;
+import com.sprinkleclaw.bootstrap.Claw;
 import com.sprinkleclaw.core.AgentResult;
 
-var agent = ClawBuilder.create()
-        .apiKey("sk-your-api-key")
+// 最小示例：零工具纯对话
+try (Claw claw = ClawBuilder.create()
+        .apiKey(System.getenv("DEEPSEEK_API_KEY"))
+        .baseUrl("https://api.deepseek.com/v1")
         .model("deepseek-chat")
-        .baseUrl("https://api.deepseek.com")
-        .workdir(Path.of("."))
-        .maxIterations(20)
-        .enableTodoWrite()             // MVP2: 任务管理
-        .compactionThreshold(100_000)  // MVP2: 自动压缩
-        .enableExtensions()            // MVP3: 一键启用 SubAgent/Skill/任务板/后台任务
-        .identityPrompt("你是一个 Java 架构师") // MVP3: 压缩后身份重注入
-        .build();
+        .systemPrompt("你是一个友好的助手")
+        .build()) {
 
-AgentResult result = agent.run("读取 pom.xml，告诉我项目用了哪些依赖");
+    AgentResult result = claw.run("你好！");
+    System.out.println(result.output());
+}
 
-System.out.println(result.finalText());
-System.out.printf("Token 用量: %d input / %d output%n",
-        result.totalUsage().inputTokens(),
-        result.totalUsage().outputTokens());
+// 编码 Agent：启用文件读写和 bash 工具
+try (Claw claw = ClawBuilder.create()
+        .apiKey(System.getenv("DEEPSEEK_API_KEY"))
+        .baseUrl("https://api.deepseek.com/v1")
+        .model("deepseek-chat")
+        .enableCodingTools()
+        .build()) {
+
+    AgentResult result = claw.run("读取 pom.xml，告诉我项目用了哪些依赖");
+    System.out.println(result.output());
+}
 ```
 
 ### 自定义工具
@@ -165,17 +170,17 @@ public class MyTools {
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  sprinkle-claw-gateway    │  sprinkle-claw-spring-boot-starter │  可选服务层 ✅
+│  sprinkle-claw-gateway    │  sprinkle-claw-spring-boot-starter │  可选服务层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层 ✅
+│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-mcp        │  sprinkle-claw-llm-ollama          │  可选适配层 ✅
+│  sprinkle-claw-mcp        │  sprinkle-claw-llm-ollama          │  可选适配层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-core       │  sprinkle-claw-bootstrap           │  核心引擎层 ✅
+│  sprinkle-claw-core       │  sprinkle-claw-bootstrap           │  核心引擎层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-llm-api    │  sprinkle-claw-tool-api            │  接口层 ✅
+│  sprinkle-claw-llm-api    │  sprinkle-claw-tool-api            │  接口层
 ├───────────────────────────┼────────────────────────────────────┤
-│                  sprinkle-claw-protocol                         │  协议层 ✅
+│                  sprinkle-claw-protocol                         │  协议层
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -185,23 +190,24 @@ public class MyTools {
 
 ## 模块说明
 
-| 模块 | 职责 | 依赖 | 状态 |
-|------|------|------|------|
-| `sprinkle-claw-protocol` | 纯数据模型：Message、ContentBlock、ChatRequest/Response、ToolDefinition/Result | 无 | ✅ 已实现 |
-| `sprinkle-claw-llm-api` | LLM Provider SPI：LlmProvider、LlmProviderFactory、LlmConfig、LlmException | protocol | ✅ 已实现 |
-| `sprinkle-claw-llm-anthropic` | Anthropic Claude 实现（JDK HttpClient，支持 Thinking 模式） | llm-api | ✅ 已实现 |
-| `sprinkle-claw-llm-openai` | OpenAI 兼容 API 实现（覆盖 DeepSeek、Qwen、GLM、豆包等） | llm-api | ✅ 已实现 |
-| `sprinkle-claw-llm-ollama` | Ollama 本地模型实现（NDJSON 流式 + Prompt 工具桥接 + 能力注册表） | llm-api | ✅ 已实现 |
-| `sprinkle-claw-tool-api` | 工具 SPI：AgentTool、@Tool 注解、ToolRegistry、ToolProvider、ToolPolicy、GlobToolPolicy | protocol | ✅ 已实现 |
-| `sprinkle-claw-tool-builtin` | 6 个内置工具：bash / read_file / write_file / edit_file / todo_write / compact | tool-api | ✅ 已实现 |
-| `sprinkle-claw-core` | 核心引擎：AgentLoop、ContextManager（三层压缩）、SessionManager、FileSnapshot、LoopGuard、ToolExecutor | protocol, llm-api, tool-api | ✅ 已实现 |
-| `sprinkle-claw-bootstrap` | Builder API + ServiceLoader 自动组装 + 会话管理 | 全部核心模块 | ✅ 已实现 |
-| `sprinkle-claw-benchmark` | JMH 性能基准：工具并发 / JSON 序列化 | core | ✅ 已实现 |
-| `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 + Guardrails + 身份重注入 | core | ✅ 已实现 |
-| `sprinkle-claw-workflow` | @Agent 声明式代理 + 六模式工作流编排 | core | ✅ 已实现 |
-| `sprinkle-claw-mcp` | MCP 协议适配（官方 SDK 1.1.1 桥接 + Client/Server 双模式 + STDIO/SSE/StreamableHTTP 传输 + 健康探活） | tool-api | ✅ 已实现 |
-| `sprinkle-claw-gateway` | 企业级管控：认证（API Key / JWT）/ Bucket4j 限流 / 多租户配额 / IP ACL / 异步审计 / Token 计量 / Prompt 注入检测 / 输出敏感过滤 | protocol | ✅ 已实现 |
-| `sprinkle-claw-spring-boot-starter` | Spring Boot 3.2+ 自动配置（`Claw` bean + Gateway filter chain + Actuator Health + Micrometer） | bootstrap, gateway | ✅ 已实现 |
+| 模块 | 职责 | 依赖 |
+|------|------|------|
+| `sprinkle-claw-protocol` | 纯数据模型：Message、ContentBlock、ChatRequest/Response、ToolDefinition/Result | 无 |
+| `sprinkle-claw-llm-api` | LLM Provider SPI：LlmProvider、LlmProviderFactory、LlmConfig、LlmException | protocol |
+| `sprinkle-claw-llm-anthropic` | Anthropic Claude 实现（JDK HttpClient，支持 Thinking 模式） | llm-api |
+| `sprinkle-claw-llm-openai` | OpenAI 兼容 API 实现（覆盖 DeepSeek、Qwen、GLM、豆包等） | llm-api |
+| `sprinkle-claw-llm-ollama` | Ollama 本地模型实现（NDJSON 流式 + Prompt 工具桥接 + 能力注册表） | llm-api |
+| `sprinkle-claw-tool-api` | 工具 SPI：AgentTool、@Tool 注解、ToolRegistry、ToolProvider、ToolPolicy、GlobToolPolicy | protocol |
+| `sprinkle-claw-tool-builtin` | 6 个内置工具：bash / read_file / write_file / edit_file / todo_write / compact | tool-api |
+| `sprinkle-claw-core` | 核心引擎：AgentLoop、ContextManager（三层压缩）、SessionManager、FileSnapshot、LoopGuard、ToolExecutor | protocol, llm-api, tool-api |
+| `sprinkle-claw-bootstrap` | Builder API + ServiceLoader 自动组装 + 会话管理 | 全部核心模块 |
+| `sprinkle-claw-benchmark` | JMH 性能基准：工具并发 / JSON 序列化 | core |
+| `sprinkle-claw-agent-ext` | SubAgent + Skill + 任务板 + 后台任务 + Guardrails + 身份重注入 | core |
+| `sprinkle-claw-workflow` | @Agent 声明式代理 + 六模式工作流编排 | core |
+| `sprinkle-claw-mcp` | MCP 协议适配（官方 SDK 1.1.1 桥接 + Client/Server 双模式 + STDIO/SSE/StreamableHTTP 传输 + 健康探活） | tool-api |
+| `sprinkle-claw-gateway` | 企业级管控：认证（API Key / JWT）/ Bucket4j 限流 / 多租户配额 / IP ACL / 异步审计 / Token 计量 / Prompt 注入检测 / 输出敏感过滤 | protocol |
+| `sprinkle-claw-spring-boot-starter` | Spring Boot 3.2+ 自动配置（`Claw` bean + Gateway filter chain + Actuator Health + Micrometer） | bootstrap, gateway |
+| `sprinkle-claw-examples` | SDK 使用示例：最小 Agent / 客服 Agent / 编码 Agent / 多 Agent 协作 | bootstrap, workflow |
 
 ---
 
@@ -223,7 +229,8 @@ sprinkle-claw/
 ├── sprinkle-claw-gateway           ← 企业级网关（认证/限流/多租户/ACL/审计/计量/安全）
 ├── sprinkle-claw-bootstrap         ← 组装层（ClawBuilder + ServiceLoader + ExtensionRegistrar）
 ├── sprinkle-claw-spring-boot-starter ← Spring Boot 3.2+ 自动配置 + Actuator
-└── sprinkle-claw-benchmark         ← JMH 性能基准
+├── sprinkle-claw-benchmark         ← JMH 性能基准
+└── sprinkle-claw-examples          ← SDK 使用示例
 ```
 
 ---
@@ -253,7 +260,7 @@ sprinkle-claw/
 | **MVP5** | ToolChoice 策略 + Ollama Provider + @Agent 声明式 + 六模式 Workflow 编排 + MCP 协议适配（自研） | ✅ 已完成 |
 | **MVP6** | 企业级网关（认证/限流/多租户/ACL/审计/计量/安全）+ Spring Boot Starter（自动配置 + Actuator + Micrometer）+ MCP 迁移至官方 SDK | ✅ 已完成 |
 | **MVP7** | Prompt Caching（CachePolicy SPI + 4 策略 + 命中率统计）+ 多模态内容（Image/Document/Audio ContentBlock）+ 多模态能力声明 | ✅ 已完成 |
-| **MVP8** | SDK 核心清理 + 生产就绪：工具注册 opt-in 重构 + 异步 API + 双层记忆架构（SessionStore + MemoryStore）+ 性能优化（HttpClient 连接池 + StructuredTaskScope）+ Agent 评估框架 | 📋 计划中 |
+| **MVP8** | SDK 核心清理 + 生产就绪：工具注册 opt-in 重构 + 异步 API + 双层记忆架构（SessionStore + MemoryStore）+ HttpClient 连接池统一 + Agent 评估框架 + 示例项目 | ✅ 已完成 |
 
 ---
 

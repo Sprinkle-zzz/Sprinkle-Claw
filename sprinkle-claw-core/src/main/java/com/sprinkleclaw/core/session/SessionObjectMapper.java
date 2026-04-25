@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.sprinkleclaw.protocol.message.CacheControl;
 import com.sprinkleclaw.protocol.message.ContentBlock;
 import com.sprinkleclaw.protocol.message.Message;
 
@@ -35,6 +36,7 @@ final class SessionObjectMapper {
         mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         mapper.addMixIn(Message.class, MessageMixin.class);
         mapper.addMixIn(ContentBlock.class, ContentBlockMixin.class);
+        mapper.addMixIn(CacheControl.class, CacheControlMixin.class);
         return mapper;
     }
 
@@ -51,8 +53,19 @@ final class SessionObjectMapper {
     @JsonSubTypes({
             @JsonSubTypes.Type(value = ContentBlock.TextBlock.class, name = "text"),
             @JsonSubTypes.Type(value = ContentBlock.ToolUseBlock.class, name = "tool_use"),
-            @JsonSubTypes.Type(value = ContentBlock.ThinkingBlock.class, name = "thinking")
+            @JsonSubTypes.Type(value = ContentBlock.ThinkingBlock.class, name = "thinking"),
+            @JsonSubTypes.Type(value = ContentBlock.ImageBlock.class, name = "image"),
+            @JsonSubTypes.Type(value = ContentBlock.DocumentBlock.class, name = "document"),
+            @JsonSubTypes.Type(value = ContentBlock.AudioBlock.class, name = "audio")
     })
     abstract static class ContentBlockMixin {
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "@type")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = CacheControl.None.class, name = "none"),
+            @JsonSubTypes.Type(value = CacheControl.Ephemeral.class, name = "ephemeral")
+    })
+    abstract static class CacheControlMixin {
     }
 }

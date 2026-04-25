@@ -6,7 +6,7 @@
     <parent>
         <groupId>icu.sprinkle</groupId>
         <artifactId>sprinkle-claw-parent</artifactId>
-        <version>0.8.0</version>
+        <version>0.9.0</version>
     </parent>
 
     <artifactId>sprinkle-claw-llm-anthropic</artifactId>

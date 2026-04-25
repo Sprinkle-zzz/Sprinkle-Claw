@@ -46,9 +46,7 @@ public final class AnthropicProvider implements LlmProvider {
     public AnthropicProvider(LlmConfig config) {
         this.config = config;
         this.objectMapper = new ObjectMapper();
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(config.timeout())
-                .build();
+        this.httpClient = SharedHttpClient.get();
         this.baseUrl = config.baseUrl().isEmpty() ? DEFAULT_BASE_URL : config.baseUrl();
     }
 
@@ -145,7 +143,9 @@ public final class AnthropicProvider implements LlmProvider {
 
             httpResponse.body().forEach(line -> {
                 SseLineParser.SseEvent sseEvent = sseParser.feed(line);
-                if (sseEvent == null) return;
+                if (sseEvent == null) {
+                    return;
+                }
 
                 try {
                     dispatchSseEvent(sseEvent, collector, callback);
@@ -172,8 +172,8 @@ public final class AnthropicProvider implements LlmProvider {
      * 分发 SSE 事件到 collector 和 callback。
      */
     private void dispatchSseEvent(SseLineParser.SseEvent sseEvent,
-                                   AnthropicResponseCollector collector,
-                                   StreamCallback callback) throws Exception {
+                                  AnthropicResponseCollector collector,
+                                  StreamCallback callback) throws Exception {
         String eventType = sseEvent.event();
         JsonNode data = objectMapper.readTree(sseEvent.data());
 
