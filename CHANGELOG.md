@@ -5,6 +5,98 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.9.0] - 2026-04-25
+
+### MVP8 · SDK 核心清理 + 生产就绪
+
+#### 新增 —— 工具注册 opt-in 重构
+
+内置工具从 ServiceLoader 自动注册改为显式启用，SDK 嵌入场景默认零工具：
+
+- **删除 `META-INF/services/com.sprinkleclaw.tool.ToolProvider`**：`BuiltinToolProvider` 不再通过 SPI 自动注册
+- **`ClawBuilder.enableFileTools()`**：显式启用 `read_file` / `write_file` / `edit_file`
+- **`ClawBuilder.enableBashTool()`**：显式启用 `bash`（高风险工具独立控制）
+- **`ClawBuilder.enableCodingTools()`**：一键启用 file + bash + todo + compact
+- **`ClawBuilder.enableManualCompact()`**：显式启用 `compact` 工具
+- **`discoverAndRegisterTools()` 重构**：ServiceLoader 过滤 `BuiltinToolProvider` 类名，防止手动重新注册 SPI
+
+#### 新增 —— 异步 API
+
+- **`Claw.runAsync()` / `chatAsync()` / `resumeAsync()`**：返回 `CompletableFuture<AgentResult>`，通过 `Executors.newThreadPerTaskExecutor(Thread.ofVirtual())` 在 Virtual Thread 中执行
+- **`AtomicBoolean running` 并发守卫**：同一 Claw 实例不可并发调用，违反时返回 `failedFuture(IllegalStateException)`
+
+#### 新增 —— Skill 编程式 API
+
+- **`ClawBuilder.addSkill(name, description, body)`**：编程式注册 Skill，无需文件系统
+- **`ClawBuilder.addSkill(name, description, tags, body)`**：带标签的重载
+- **`SkillEntry` 便捷构造器**：2 参数 / 3 参数构造（无 path 参数），适合编程式创建
+- **`ExtensionRegistrar` 合并注册**：文件扫描 + 编程式 Skill 统一注册到 `SkillLoader`
+- **自动启用**：调用 `addSkill()` 后自动 `enableSkill = true`
+
+#### 新增 —— TaskStore 可注入
+
+- **`ClawBuilder.taskStore(Object)`**：使用 `Object` 类型避免对 `agent-ext` 的编译依赖
+- **`ExtensionRegistrar` 类型检查**：优先使用自定义 TaskStore（`instanceof TaskStore`），类型不匹配抛 `IllegalArgumentException`
+
+#### 新增 —— SessionSnapshotSerializer
+
+- **`SessionSnapshotSerializer`**：会话快照序列化/反序列化工具类，处理 `Message` sealed interface 多态和 6 种 `ContentBlock` 多态
+- **`SessionObjectMapper` 多模态补全**：`ContentBlockMixin` 补充 `ImageBlock` / `DocumentBlock` / `AudioBlock`
+- **`CacheControlMixin`**：`CacheControl` sealed interface 的 Jackson Mixin
+
+#### 新增 —— HttpClient 连接池统一
+
+- **`SharedHttpClient`**（`sprinkle-claw-llm-api` 模块）：DCL 单例 + HTTP/2 + Virtual Thread executor + 10s 连接超时 + NORMAL 重定向
+- **`SharedHttpClient.override(HttpClient)`**：测试入口，支持注入自定义 HttpClient
+- **三个 Provider 改造**：`AnthropicProvider` / `OpenAiCompatibleProvider` / `OllamaHttpClient` 从各自创建 HttpClient 改为共享 `SharedHttpClient.get()`
+
+#### 新增 —— 双层记忆架构
+
+- **`MemoryStore` SPI**（`sprinkle-claw-core` 模块）：长期跨会话记忆接口，`record()` / `retrieve(query, topK)` / `delete()` / `listAll()` / `size()`
+- **`MemoryEntry` record**：记忆条目（id / content / metadata / createdAt）+ 便捷构造器
+- **`InMemoryMemoryStore`**：`ConcurrentHashMap` 实现，基于关键词匹配的检索（分词 → 匹配率评分 → topK 排序）
+- **`MemoryEnricherHook`**：`LoopHook` 实现（priority=45），首次 LLM 调用前检索相关记忆并注入 `<relevant-memories>` 系统提醒
+- **`ClawBuilder.memoryStore(Object)`**：注入 MemoryStore，自动注册 MemoryEnricherHook
+
+#### 新增 —— Agent 评估框架
+
+- **`AgentEvaluator`**（`sprinkle-claw-core` 模块）：LLM-as-judge 评估框架，接受 `Function<String, AgentResult>` + 场景列表
+- **`EvalScenario` record**：评估场景（name / input / expectedBehaviors），支持 varargs 构造
+- **`EvalResult` record**：评估结果（scenario / score / passed / feedback / output）
+
+#### 新增 —— 示例项目 (`sprinkle-claw-examples`)
+
+4 个 SDK 使用示例（DeepSeek 模型）：
+
+- **`MinimalAgent`**：零工具纯对话，最简 Agent 构建
+- **`CustomerServiceAgent`**：业务嵌入客服 Agent，展示 `addSkill()` + `chatAsync()` 多轮对话
+- **`CodingAgent`**：`enableCodingTools()` 编码 Agent
+- **`MultiAgentCollaboration`**：`@Agent` 声明式代理 + `SequentialWorkflow` 串联 Researcher → Writer
+
+#### 修复
+
+- **AgentLoop LLM 调用异常日志**：同步路径和流式路径 `catch` 块新增 `log.warn("LLM 调用失败 (迭代 {}): {}", iteration, e.getMessage(), e)`，不再吞掉错误信息
+
+#### 测试
+
+- **ClawBuilderToolRegistrationTest**：工具 opt-in 注册验证
+- **ClawAsyncApiTest**：异步 API + 并发守卫验证
+- **SessionSnapshotSerializerTest**：6 种 ContentBlock 往返序列化
+- **SharedHttpClientTest**：DCL 单例 + override 测试
+- **InMemoryMemoryStoreTest**：CRUD + 关键词检索
+- **MemoryEnricherHookTest**：preLlmCall 记忆注入
+- **AgentEvaluatorTest**：10 个测试用例（完整流程 / 批量场景 / 异常处理 / 边界解析）
+
+#### ⚠️ 不兼容变更
+
+- **内置工具不再自动注册**：`ClawBuilder.create().build()` 默认零工具。迁移方式：
+  - 编码 Agent：添加 `.enableCodingTools()`
+  - 仅文件工具：添加 `.enableFileTools()`
+  - 仅 bash：添加 `.enableBashTool()`
+- **`CompactTool` 需显式启用**：原 `compactionThreshold > 0` 即注册，现需同时 `enableManualCompact()`（`enableCodingTools()` 已包含）
+
+---
+
 ## [0.8.0] - 2026-04-21
 
 ### MVP7 · Prompt Caching + 多模态内容支持
