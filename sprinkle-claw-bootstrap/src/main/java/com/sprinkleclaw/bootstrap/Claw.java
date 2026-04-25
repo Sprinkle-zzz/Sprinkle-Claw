@@ -13,6 +13,10 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Agent 运行时门面，由 {@link ClawBuilder} 构建。
@@ -35,6 +39,7 @@ public final class Claw implements AutoCloseable {
     private final AgentContext context;
     private final SessionManager sessionManager;
     private final List<AutoCloseable> resources;
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     Claw(AgentLoop agentLoop, AgentContext context, SessionManager sessionManager,
          List<AutoCloseable> resources) {
@@ -106,6 +111,67 @@ public final class Claw implements AutoCloseable {
         // 追加新用户消息并执行
         context.addMessage(Message.UserMessage.of(userMessage));
         return agentLoop.run();
+    }
+
+    // ========== MVP8: 异步 API ==========
+
+    /**
+     * 异步执行 Agent Loop。
+     *
+     * <p>在 Virtual Thread 中运行，不阻塞调用线程。
+     * 适用于 Servlet/WebFlux/Vert.x 等非阻塞框架。</p>
+     *
+     * <p><b>线程安全</b>：同一 Claw 实例不可并发调用 run/chat/resume（同步或异步）。
+     * 调用方必须等待前一个 Future 完成后再发起下一个调用。</p>
+     *
+     * @param userMessage 用户输入消息
+     * @return 异步结果
+     */
+    public CompletableFuture<AgentResult> runAsync(String userMessage) {
+        return executeAsync(() -> run(userMessage));
+    }
+
+    /**
+     * 异步多轮对话。
+     *
+     * <p><b>线程安全</b>：见 {@link #runAsync(String)}。</p>
+     *
+     * @param userMessage 用户输入消息
+     * @return 异步结果
+     */
+    public CompletableFuture<AgentResult> chatAsync(String userMessage) {
+        return executeAsync(() -> chat(userMessage));
+    }
+
+    /**
+     * 异步恢复会话。
+     *
+     * <p><b>线程安全</b>：见 {@link #runAsync(String)}。</p>
+     *
+     * @param sessionId   要恢复的会话 ID
+     * @param userMessage 新的用户消息
+     * @return 异步结果
+     * @throws IllegalStateException 若未启用会话管理
+     */
+    public CompletableFuture<AgentResult> resumeAsync(String sessionId, String userMessage) {
+        return executeAsync(() -> resume(sessionId, userMessage));
+    }
+
+    private static final ExecutorService ASYNC_EXECUTOR =
+            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("claw-async-", 0).factory());
+
+    private CompletableFuture<AgentResult> executeAsync(java.util.function.Supplier<AgentResult> task) {
+        if (!running.compareAndSet(false, true)) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("Another run/chat/resume is already in progress on this Claw instance."));
+        }
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return task.get();
+            } finally {
+                running.set(false);
+            }
+        }, ASYNC_EXECUTOR);
     }
 
     /**

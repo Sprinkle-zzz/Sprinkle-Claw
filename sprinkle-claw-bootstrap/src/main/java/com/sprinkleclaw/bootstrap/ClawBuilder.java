@@ -87,6 +87,9 @@ public final class ClawBuilder {
     private int autoSaveInterval = 5;
     private int compactionThreshold = 100_000;
     private int modelContextWindow = 0;
+    private boolean enableFileTools = false;
+    private boolean enableBashTool = false;
+    private boolean enableManualCompact = false;
     private boolean enableTodoWrite = false;
     private int todoNagThreshold = 3;
     private boolean enableFileSnapshot = false;
@@ -97,6 +100,15 @@ public final class ClawBuilder {
     private boolean enableBackgroundTasks = false;
     private String identityPrompt = "";
     private final List<McpServerConfig> mcpServers = new ArrayList<>();
+    // MVP8: Skill 编程式注册
+    private final List<SkillSpec> programmaticSkills = new ArrayList<>();
+    // MVP8: TaskStore 可注入
+    private Object customTaskStore;
+    // MVP8: 长期记忆
+    private Object memoryStore;
+
+    record SkillSpec(String name, String description, List<String> tags, String body) {
+    }
 
     ClawBuilder() {
     }
@@ -341,6 +353,49 @@ public final class ClawBuilder {
     }
 
     /**
+     * 启用文件工具（read_file + write_file + edit_file）。
+     * <p>文件工具允许 Agent 读写工作目录下的文件。
+     * 写操作受 {@link #toolPolicy(ToolPolicy)} 和 {@link #blockCommand(String)} 约束。</p>
+     */
+    public ClawBuilder enableFileTools() {
+        this.enableFileTools = true;
+        return this;
+    }
+
+    /**
+     * 启用 Bash 命令执行工具。
+     * <p><b>高风险</b>：允许 Agent 在工作目录下执行任意 shell 命令。
+     * 强烈建议配合 {@link #blockCommand(String)} 限制危险命令。</p>
+     */
+    public ClawBuilder enableBashTool() {
+        this.enableBashTool = true;
+        return this;
+    }
+
+    /**
+     * 一键启用全部编码相关工具（file + bash + todo + compact）。
+     * <p>等效于：{@code enableFileTools().enableBashTool().enableTodoWrite().enableManualCompact()}</p>
+     * <p>适用于编码 Agent 场景（类 Claude Code 体验）。</p>
+     */
+    public ClawBuilder enableCodingTools() {
+        this.enableFileTools = true;
+        this.enableBashTool = true;
+        this.enableTodoWrite = true;
+        this.enableManualCompact = true;
+        return this;
+    }
+
+    /**
+     * 启用手动压缩工具（compact）。
+     * <p>允许 LLM 主动触发上下文压缩。通常用于长时间交互式会话。
+     * 自动压缩（{@code ContextManager} 阈值驱动）不受此影响，始终启用。</p>
+     */
+    public ClawBuilder enableManualCompact() {
+        this.enableManualCompact = true;
+        return this;
+    }
+
+    /**
      * 启用文件快照追踪（自动创建 GitFileSnapshot + FileTimestampCache）。
      */
     public ClawBuilder enableFileSnapshot() {
@@ -400,11 +455,62 @@ public final class ClawBuilder {
     }
 
     /**
+     * 编程式注册 Skill。
+     * <p>自动启用 Skill 功能（无需额外调用 {@link #enableSkill()}）。</p>
+     *
+     * @param name        Skill 名称（唯一标识，用于 load_skill 工具参数）
+     * @param description 简短描述（注入 system prompt 供 LLM 选择）
+     * @param body        Skill 完整内容（load_skill 时返回给 LLM）
+     */
+    public ClawBuilder addSkill(String name, String description, String body) {
+        programmaticSkills.add(new SkillSpec(name, description, List.of(), body));
+        return this;
+    }
+
+    /**
+     * 编程式注册 Skill（带标签）。
+     *
+     * @param name        Skill 名称
+     * @param description 简短描述
+     * @param tags        标签列表
+     * @param body        Skill 完整内容
+     */
+    public ClawBuilder addSkill(String name, String description, List<String> tags, String body) {
+        programmaticSkills.add(new SkillSpec(name, description, tags, body));
+        return this;
+    }
+
+    /**
+     * 设置自定义 TaskStore 实现。
+     * <p>需要 sprinkle-claw-agent-ext 在 classpath。默认使用 {@code FileTaskStore}。
+     * 传入的对象必须实现 {@code com.sprinkleclaw.ext.task.TaskStore} 接口。</p>
+     *
+     * @param taskStore TaskStore 实现实例
+     */
+    public ClawBuilder taskStore(Object taskStore) {
+        this.customTaskStore = taskStore;
+        return this;
+    }
+
+    /**
+     * 设置长期记忆存储。自动注册 {@code MemoryEnricherHook}，在每次 LLM 调用前检索相关记忆。
+     * <p>传入的对象必须实现 {@code com.sprinkleclaw.core.memory.MemoryStore} 接口。</p>
+     *
+     * @param store MemoryStore 实现实例
+     */
+    public ClawBuilder memoryStore(Object store) {
+        this.memoryStore = store;
+        return this;
+    }
+
+    /**
      * 启用 MCP 客户端：连接每个配置的远程 MCP 服务器，把其工具自动加入 ToolRegistry。
      * 需要 sprinkle-claw-mcp 在 classpath。
      */
     public ClawBuilder enableMcp(List<McpServerConfig> servers) {
-        if (servers != null) this.mcpServers.addAll(servers);
+        if (servers != null) {
+            this.mcpServers.addAll(servers);
+        }
         return this;
     }
 
@@ -412,7 +518,9 @@ public final class ClawBuilder {
      * 添加单个 MCP 服务器（{@link #enableMcp(List)} 的简写）。
      */
     public ClawBuilder addMcpServer(McpServerConfig server) {
-        if (server != null) this.mcpServers.add(server);
+        if (server != null) {
+            this.mcpServers.add(server);
+        }
         return this;
     }
 
@@ -445,10 +553,15 @@ public final class ClawBuilder {
             log.info("已启用 TodoWrite 工具（nag 阈值: {}）", todoNagThreshold);
         }
 
-        // MVP2: 若配置了压缩阈值，注册 CompactTool
-        if (compactionThreshold > 0) {
+        // MVP8: CompactTool 改为显式 opt-in
+        if (enableManualCompact && compactionThreshold > 0) {
             registry.register(new com.sprinkleclaw.tool.builtin.CompactTool());
             log.info("已注册 CompactTool（压缩阈值: {}）", compactionThreshold);
+        }
+
+        // MVP8: 有编程式 Skill 时自动启用 Skill 功能
+        if (!programmaticSkills.isEmpty()) {
+            this.enableSkill = true;
         }
 
         AgentConfig config = AgentConfig.builder()
@@ -486,10 +599,22 @@ public final class ClawBuilder {
         context.setAttribute("fileTimestampCache", timestampCache);
         context.setAttribute("fileSnapshot", fileSnapshot);
 
-        // MVP3: 注册 agent-ext 扩展工具和 Hook
+        // MVP3+MVP8: 注册 agent-ext 扩展工具和 Hook
         List<LoopHook> extensionHooks = ExtensionRegistrar.registerExtensions(
-                registry, config, provider, systemPrompt, hooks);
+                registry, config, provider, systemPrompt, hooks,
+                programmaticSkills, customTaskStore);
         hooks.addAll(extensionHooks);
+
+        // MVP8: 长期记忆
+        if (memoryStore != null) {
+            if (!(memoryStore instanceof com.sprinkleclaw.core.memory.MemoryStore ms)) {
+                throw new IllegalArgumentException(
+                        "memoryStore must implement com.sprinkleclaw.core.memory.MemoryStore, got: "
+                                + memoryStore.getClass().getName());
+            }
+            hooks.add(new com.sprinkleclaw.core.memory.MemoryEnricherHook(ms));
+            log.info("已启用长期记忆（MemoryEnricherHook）");
+        }
 
         ToolOutputTruncator truncator = new ToolOutputTruncator(
                 config.toolOutputMaxLines(), config.toolOutputMaxBytes(),
@@ -611,18 +736,37 @@ public final class ClawBuilder {
     }
 
     /**
-     * 收集并注册所有工具来源：手动注册、{@code @Tool} 注解扫描、ServiceLoader 发现。
+     * 收集并注册所有工具来源：手动注册 → {@code @Tool} 注解扫描 → 内置工具（显式 opt-in） → ServiceLoader（第三方）。
      */
     private void discoverAndRegisterTools(ToolRegistry registry) {
+        // 1) 手动注册
         registry.registerAll(tools);
 
+        // 2) @Tool 注解扫描
         for (Object holder : annotatedToolHolders) {
             registry.registerAll(AnnotatedToolAdapter.from(holder));
         }
 
+        // 3) 内置工具：显式 opt-in（MVP8 改造）
+        if (enableFileTools) {
+            registry.register(new com.sprinkleclaw.tool.builtin.ReadFileTool());
+            registry.register(new com.sprinkleclaw.tool.builtin.WriteFileTool());
+            registry.register(new com.sprinkleclaw.tool.builtin.EditFileTool());
+            log.info("已启用文件工具（read_file, write_file, edit_file）");
+        }
+        if (enableBashTool) {
+            registry.register(new com.sprinkleclaw.tool.builtin.BashTool());
+            log.info("已启用 Bash 工具");
+        }
+
+        // 4) ServiceLoader 发现第三方 ToolProvider（MCP、用户自定义等）
         ServiceLoader<ToolProvider> providers = ServiceLoader.load(ToolProvider.class);
         var toolContext = new com.sprinkleclaw.tool.ToolContext(workingDirectory);
         for (ToolProvider tp : providers) {
+            if (tp.getClass().getName().equals("com.sprinkleclaw.tool.builtin.BuiltinToolProvider")) {
+                log.debug("跳过 BuiltinToolProvider（请使用 enableFileTools/enableBashTool）");
+                continue;
+            }
             log.debug("从 ToolProvider 发现工具: {}", tp.getClass().getName());
             registry.registerAll(tp.provideTools(toolContext));
         }
