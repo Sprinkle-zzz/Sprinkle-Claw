@@ -23,7 +23,8 @@ import java.util.concurrent.*;
  * 工具执行器，使用虚拟线程并发执行工具调用。
  *
  * <p>执行流程：安全策略检查 → 工具查找 → 执行 → 输出截断 → 错误处理。</p>
- * <p>单个工具调用直接在当前线程执行；多个工具调用时并发执行以提升效率。</p>
+ * <p>单个工具调用直接在当前线程执行；多个工具调用时通过 {@code newVirtualThreadPerTaskExecutor()}
+ * 并发执行以提升效率。</p>
  *
  * @author sprinkle
  * @since 2026/3/19
