@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">Sprinkle-Claw</h1>
+  <h1 align="center">Sprinkle-Loom</h1>
   <p align="center">
     <strong>协议驱动的 Java AI Agent SDK</strong><br/>
     <em>Protocol-driven, embeddable AI Agent SDK for Java 21+</em>
@@ -25,7 +25,7 @@
 
 ## 这是什么
 
-**Sprinkle-Claw** 是一个面向 Java 生态的 AI Agent SDK。它不是又一个 Agent 应用，而是一组可独立引入的 Maven 模块——无论你想在已有项目中**嵌入** AI Agent 能力，还是从零**构建** Agent 应用，都可以按需引入。
+**Sprinkle-Loom** 是一个面向 Java 生态的 AI Agent SDK。它不是又一个 Agent 应用，而是一组可独立引入的 Maven 模块——无论你想在已有项目中**嵌入** AI Agent 能力，还是从零**构建** Agent 应用，都可以按需引入。
 
 > **设计哲学**：协议驱动 > 功能堆砌 · SDK-First > 独立应用 · 组合 > 继承 · 默认零工具
 
@@ -47,18 +47,18 @@
 ### A.1 最小代码示例
 
 ```java
-import com.sprinkleclaw.bootstrap.ClawBuilder;
-import com.sprinkleclaw.bootstrap.Claw;
-import com.sprinkleclaw.core.AgentResult;
+import icu.sprinkle.loom.bootstrap.LoomBuilder;
+import icu.sprinkle.loom.bootstrap.Loom;
+import icu.sprinkle.loom.core.AgentResult;
 
-try (Claw claw = ClawBuilder.create()
+try (Loom loom = LoomBuilder.create()
         .apiKey(System.getenv("DEEPSEEK_API_KEY"))
         .baseUrl("https://api.deepseek.com/v1")
         .model("deepseek-v4-flash")
         .systemPrompt("你是一个友好的助手")
         .build()) {
 
-    AgentResult result = claw.run("你好");
+    AgentResult result = loom.run("你好");
     System.out.println(result.output());
 }
 ```
@@ -77,7 +77,7 @@ public class OrderTools {
     }
 }
 
-ClawBuilder.create()
+LoomBuilder.create()
     .apiKey(...).model(...)
     .annotatedTools(new OrderTools())
     .build();
@@ -86,7 +86,7 @@ ClawBuilder.create()
 ### A.3 Spring Boot 多 model 配置
 
 ```yaml
-sprinkle-claw:
+sprinkle-loom:
   agent:                          # 全局默认（被 instance 同名字段覆盖）
     max-iterations: 50
     system-prompt: "你是助手"
@@ -107,17 +107,17 @@ sprinkle-claw:
 ```
 
 ```java
-@Autowired Claw claw;                          // 注入 primary（claude）
-@Autowired @Qualifier("qa-bot") Claw qaBot;
+@Autowired Loom loom;                          // 注入 primary（claude）
+@Autowired @Qualifier("qa-bot") Loom qaBot;
 ```
 
 ### A.4 流式输出（SSE 给前端）
 
 ```java
-import com.sprinkleclaw.core.loop.event.AgentEvent;
+import icu.sprinkle.loom.core.loop.event.AgentEvent;
 import java.util.concurrent.Flow;
 
-claw.runStreaming("写一首关于秋天的诗").subscribe(new Flow.Subscriber<>() {
+loom.runStreaming("写一首关于秋天的诗").subscribe(new Flow.Subscriber<>() {
     public void onSubscribe(Flow.Subscription s) { s.request(Long.MAX_VALUE); }
     public void onNext(AgentEvent event) {
         if (event instanceof AgentEvent.LlmToken t) {
@@ -133,9 +133,9 @@ claw.runStreaming("写一首关于秋天的诗").subscribe(new Flow.Subscriber<>
 
 ### A.5 长期记忆 / 多轮会话
 
-- `claw.chat("...")` —— 多轮对话，自动维护 context
-- `claw.resume(sessionId, "...")` —— 恢复历史会话继续
-- `ClawBuilder.memoryStore(...)` —— 注入 `MemoryStore` SPI，跨会话长期记忆自动注入相关条目
+- `loom.chat("...")` —— 多轮对话，自动维护 context
+- `loom.resume(sessionId, "...")` —— 恢复历史会话继续
+- `LoomBuilder.memoryStore(...)` —— 注入 `MemoryStore` SPI，跨会话长期记忆自动注入相关条目
 
 ---
 
@@ -144,7 +144,7 @@ claw.runStreaming("写一首关于秋天的诗").subscribe(new Flow.Subscriber<>
 ### B.1 编码 Agent 一键启用
 
 ```java
-try (Claw claw = ClawBuilder.create()
+try (Loom loom = LoomBuilder.create()
         .apiKey(System.getenv("DEEPSEEK_API_KEY"))
         .baseUrl("https://api.deepseek.com/v1")
         .model("deepseek-v4-flash")
@@ -152,7 +152,7 @@ try (Claw claw = ClawBuilder.create()
         .enableCodingTools()                // file tools + bash + todo + compact
         .build()) {
 
-    AgentResult result = claw.run("读取 pom.xml，告诉我项目用了哪些依赖");
+    AgentResult result = loom.run("读取 pom.xml，告诉我项目用了哪些依赖");
     System.out.println(result.output());
 }
 ```
@@ -228,17 +228,17 @@ SequentialWorkflow.<String, String>builder()
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  sprinkle-claw-gateway    │  sprinkle-claw-spring-boot-starter │  可选服务层
+│  sprinkle-loom-gateway    │  sprinkle-loom-spring-boot-starter │  可选服务层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-agent-ext  │  sprinkle-claw-workflow            │  可选扩展层
+│  sprinkle-loom-agent-ext  │  sprinkle-loom-workflow            │  可选扩展层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-mcp        │  sprinkle-claw-llm-ollama          │  可选适配层
+│  sprinkle-loom-mcp        │  sprinkle-loom-llm-ollama          │  可选适配层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-core       │  sprinkle-claw-bootstrap           │  核心引擎层
+│  sprinkle-loom-core       │  sprinkle-loom-bootstrap           │  核心引擎层
 ├───────────────────────────┼────────────────────────────────────┤
-│  sprinkle-claw-llm-api    │  sprinkle-claw-tool-api            │  接口层
+│  sprinkle-loom-llm-api    │  sprinkle-loom-tool-api            │  接口层
 ├───────────────────────────┼────────────────────────────────────┤
-│                  sprinkle-claw-protocol                        │  协议层
+│                  sprinkle-loom-protocol                        │  协议层
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -250,21 +250,21 @@ SequentialWorkflow.<String, String>builder()
 
 | 模块 | 职责 | 路径 A 必需？ | 路径 B 必需？ |
 |------|------|:---:|:---:|
-| `sprinkle-claw-protocol` | 数据模型：Message / ContentBlock / ChatRequest / ToolDefinition | ✅ | ✅ |
-| `sprinkle-claw-llm-api` | LLM Provider SPI + LlmConfig + LlmCapabilities | ✅ | ✅ |
-| `sprinkle-claw-llm-anthropic` | Anthropic Claude 实现（含 Thinking） | 选一 | 选一 |
-| `sprinkle-claw-llm-openai` | OpenAI 兼容（DeepSeek / Qwen / GLM / 豆包等） | 选一 | 选一 |
-| `sprinkle-claw-llm-ollama` | Ollama 本地模型（NDJSON + Prompt 工具桥接） | 选一 | 选一 |
-| `sprinkle-claw-tool-api` | 工具 SPI + `@Tool` 注解 + GlobToolPolicy | ✅ | ✅ |
-| `sprinkle-claw-tool-builtin` | 内置工具：bash / read / write / edit / todo_write / compact | — | ✅ |
-| `sprinkle-claw-core` | Agent Loop / 三层压缩 / SessionManager / FileSnapshot / 错误恢复 | ✅ | ✅ |
-| `sprinkle-claw-bootstrap` | `ClawBuilder` Builder API + ServiceLoader 自动组装 | ✅ | ✅ |
-| `sprinkle-claw-agent-ext` | SubAgent / Skill / 任务板 / 后台任务 / Guardrails | 部分（Skill / Guardrails）| ✅ |
-| `sprinkle-claw-workflow` | `@Agent` 声明式 + 六模式工作流 | 可选 | 可选 |
-| `sprinkle-claw-mcp` | MCP 协议适配（官方 SDK 1.1.1） | 可选 | ✅ |
-| `sprinkle-claw-gateway` | 企业级网关（认证 / 限流 / 多租户 / ACL / 审计） | ✅（生产）| 可选 |
-| `sprinkle-claw-spring-boot-starter` | Spring Boot 3.2+ 自动配置 + 多 model + Actuator | ✅（Spring）| 可选 |
-| `sprinkle-claw-examples` | 示例：Minimal / CustomerService / Coding / MultiAgent / Streaming | 参考 | 参考 |
+| `sprinkle-loom-protocol` | 数据模型：Message / ContentBlock / ChatRequest / ToolDefinition | ✅ | ✅ |
+| `sprinkle-loom-llm-api` | LLM Provider SPI + LlmConfig + LlmCapabilities | ✅ | ✅ |
+| `sprinkle-loom-llm-anthropic` | Anthropic Claude 实现（含 Thinking） | 选一 | 选一 |
+| `sprinkle-loom-llm-openai` | OpenAI 兼容（DeepSeek / Qwen / GLM / 豆包等） | 选一 | 选一 |
+| `sprinkle-loom-llm-ollama` | Ollama 本地模型（NDJSON + Prompt 工具桥接） | 选一 | 选一 |
+| `sprinkle-loom-tool-api` | 工具 SPI + `@Tool` 注解 + GlobToolPolicy | ✅ | ✅ |
+| `sprinkle-loom-tool-builtin` | 内置工具：bash / read / write / edit / todo_write / compact | — | ✅ |
+| `sprinkle-loom-core` | Agent Loop / 三层压缩 / SessionManager / FileSnapshot / 错误恢复 | ✅ | ✅ |
+| `sprinkle-loom-bootstrap` | `LoomBuilder` Builder API + ServiceLoader 自动组装 | ✅ | ✅ |
+| `sprinkle-loom-agent-ext` | SubAgent / Skill / 任务板 / 后台任务 / Guardrails | 部分（Skill / Guardrails）| ✅ |
+| `sprinkle-loom-workflow` | `@Agent` 声明式 + 六模式工作流 | 可选 | 可选 |
+| `sprinkle-loom-mcp` | MCP 协议适配（官方 SDK 1.1.1） | 可选 | ✅ |
+| `sprinkle-loom-gateway` | 企业级网关（认证 / 限流 / 多租户 / ACL / 审计） | ✅（生产）| 可选 |
+| `sprinkle-loom-spring-boot-starter` | Spring Boot 3.2+ 自动配置 + 多 model + Actuator | ✅（Spring）| 可选 |
+| `sprinkle-loom-examples` | 示例：Minimal / CustomerService / Coding / MultiAgent / Streaming | 参考 | 参考 |
 
 ---
 
@@ -274,8 +274,8 @@ SequentialWorkflow.<String, String>builder()
 - **Maven 3.9+**
 
 ```bash
-git clone https://github.com/Sprinkle-zzz/Sprinkle-Claw.git
-cd sprinkle-claw
+git clone https://github.com/Sprinkle-zzz/Sprinkle-Loom.git
+cd sprinkle-loom
 mvn clean install -DskipTests
 ```
 
@@ -293,7 +293,7 @@ mvn clean install -DskipTests
 | **MVP6** | 企业级网关 + Spring Boot Starter + MCP 迁移至官方 SDK | ✅ |
 | **MVP7** | Prompt Caching + 多模态内容（Image / Document / Audio）+ 多模态能力声明 | ✅ |
 | **MVP8** | SDK 核心清理：工具注册 opt-in + 异步 API + 双层记忆 + HttpClient 连接池统一 + 评估框架 + 示例项目 | ✅ |
-| **MVP9** | SDK 定位偏离修正：`Claw` 流式门面 + Spring Boot 多 model + 默认行为审计（删 transcript 写盘 / SystemPromptBuilder 修正 / `enableExtensions` 删除 / 目录默认值删除） | ⏳ 进行中 |
+| **MVP9** | SDK 定位偏离修正：`Loom` 流式门面 + Spring Boot 多 model + 默认行为审计（删 transcript 写盘 / SystemPromptBuilder 修正 / `enableExtensions` 删除 / 目录默认值删除） | ⏳ 进行中 |
 | **MVP10** | 多 LLM 适配优化（`LlmConfig` 三层扩展点 + deepseek-v4-pro / Cache 字段双兼容）+ OpenTelemetry 桥接 | 规划中 |
 
 ---
