@@ -4,14 +4,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>icu.sprinkle</groupId>
-    <artifactId>sprinkle-claw-parent</artifactId>
-    <version>0.10.0</version>
+    <groupId>icu.sprinkle.loom</groupId>
+    <artifactId>sprinkle-loom-parent</artifactId>
+    <version>0.11.0</version>
     <packaging>pom</packaging>
 
-    <name>Sprinkle-Claw</name>
+    <name>Sprinkle-Loom</name>
     <description>Protocol-driven, embeddable AI Agent SDK for Java 21+</description>
-    <url>https://github.com/Sprinkle-zzz/Sprinkle-Claw</url>
+    <url>https://github.com/Sprinkle-zzz/Sprinkle-Loom</url>
 
     <licenses>
         <license>
@@ -30,28 +30,28 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/Sprinkle-zzz/Sprinkle-Claw.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/Sprinkle-zzz/Sprinkle-Claw.git</developerConnection>
-        <url>https://github.com/Sprinkle-zzz/Sprinkle-Claw</url>
+        <connection>scm:git:git://github.com/Sprinkle-zzz/Sprinkle-Loom.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/Sprinkle-zzz/Sprinkle-Loom.git</developerConnection>
+        <url>https://github.com/Sprinkle-zzz/Sprinkle-Loom</url>
     </scm>
 
     <modules>
-        <module>sprinkle-claw-protocol</module>
-        <module>sprinkle-claw-llm-api</module>
-        <module>sprinkle-claw-llm-anthropic</module>
-        <module>sprinkle-claw-llm-openai</module>
-        <module>sprinkle-claw-tool-api</module>
-        <module>sprinkle-claw-tool-builtin</module>
-        <module>sprinkle-claw-core</module>
-        <module>sprinkle-claw-bootstrap</module>
-        <module>sprinkle-claw-llm-ollama</module>
-        <module>sprinkle-claw-workflow</module>
-        <module>sprinkle-claw-mcp</module>
-        <module>sprinkle-claw-agent-ext</module>
-        <module>sprinkle-claw-gateway</module>
-        <module>sprinkle-claw-spring-boot-starter</module>
-        <module>sprinkle-claw-benchmark</module>
-        <module>sprinkle-claw-examples</module>
+        <module>sprinkle-loom-protocol</module>
+        <module>sprinkle-loom-llm-api</module>
+        <module>sprinkle-loom-llm-anthropic</module>
+        <module>sprinkle-loom-llm-openai</module>
+        <module>sprinkle-loom-tool-api</module>
+        <module>sprinkle-loom-tool-builtin</module>
+        <module>sprinkle-loom-core</module>
+        <module>sprinkle-loom-bootstrap</module>
+        <module>sprinkle-loom-llm-ollama</module>
+        <module>sprinkle-loom-workflow</module>
+        <module>sprinkle-loom-mcp</module>
+        <module>sprinkle-loom-agent-ext</module>
+        <module>sprinkle-loom-gateway</module>
+        <module>sprinkle-loom-spring-boot-starter</module>
+        <module>sprinkle-loom-benchmark</module>
+        <module>sprinkle-loom-examples</module>
     </modules>
 
     <properties>
@@ -123,73 +123,73 @@
 
             <!-- Internal modules -->
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-protocol</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-protocol</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-llm-api</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-llm-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-llm-anthropic</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-llm-anthropic</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-llm-openai</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-llm-openai</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-tool-api</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-tool-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-tool-builtin</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-tool-builtin</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-core</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-bootstrap</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-bootstrap</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-llm-ollama</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-llm-ollama</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-workflow</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-workflow</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-mcp</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-mcp</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-agent-ext</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-agent-ext</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-gateway</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-gateway</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>icu.sprinkle</groupId>
-                <artifactId>sprinkle-claw-spring-boot-starter</artifactId>
+                <groupId>icu.sprinkle.loom</groupId>
+                <artifactId>sprinkle-loom-spring-boot-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

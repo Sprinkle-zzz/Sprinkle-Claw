@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>icu.sprinkle.loom</groupId>
+        <artifactId>sprinkle-loom-parent</artifactId>
+        <version>0.11.0</version>
+    </parent>
+
+    <artifactId>sprinkle-loom-mcp</artifactId>
+    <name>Sprinkle-Loom MCP</name>
+    <description>MCP (Model Context Protocol) adapter - Client/Server dual mode</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>icu.sprinkle.loom</groupId>
+            <artifactId>sprinkle-loom-tool-api</artifactId>
+        </dependency>
+
+        <!--
+          MCP 官方 SDK：编译期必备、运行时按需。
+          标记 optional：使用者只有真正调用 MCP 桥接 API 时才需要在自己工程中显式添加该依赖。
+          McpAvailability 通过 Class.forName 在运行时探测，缺失时给出明确指引。
+        -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
