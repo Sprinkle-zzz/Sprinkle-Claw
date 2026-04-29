@@ -11,6 +11,7 @@ import com.sprinkleclaw.protocol.message.ContentBlock;
 import com.sprinkleclaw.protocol.tool.ToolDefinition;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -49,6 +50,7 @@ class ClawBuilderToolRegistrationTest {
     void enableFileTools_registersReadWriteEdit() {
         var claw = ClawBuilder.create()
                 .llmProvider(mockProvider())
+                .workingDirectory(Path.of("."))
                 .enableFileTools()
                 .build();
 
@@ -62,6 +64,7 @@ class ClawBuilderToolRegistrationTest {
     void enableBashTool_registersOnlyBash() {
         var claw = ClawBuilder.create()
                 .llmProvider(mockProvider())
+                .workingDirectory(Path.of("."))
                 .enableBashTool()
                 .build();
 
@@ -75,6 +78,7 @@ class ClawBuilderToolRegistrationTest {
     void enableCodingTools_registersAllCodingTools() {
         var claw = ClawBuilder.create()
                 .llmProvider(mockProvider())
+                .workingDirectory(Path.of("."))
                 .enableCodingTools()
                 .compactionThreshold(100_000)
                 .build();
@@ -127,6 +131,7 @@ class ClawBuilderToolRegistrationTest {
 
         var claw = ClawBuilder.create()
                 .llmProvider(mockProvider())
+                .workingDirectory(Path.of("."))
                 .enableFileTools()
                 .addTool(customTool)
                 .build();

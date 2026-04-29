@@ -1,5 +1,7 @@
 package com.sprinkleclaw.tool;
 
+import com.sprinkleclaw.api.Stable;
+
 import java.util.List;
 
 /**
@@ -9,6 +11,7 @@ import java.util.List;
  * @author sprinkle
  * @since 2026/3/18
  */
+@Stable
 public interface ToolProvider {
 
     /**

@@ -1,5 +1,6 @@
 package com.sprinkleclaw.llm;
 
+import com.sprinkleclaw.api.Stable;
 import com.sprinkleclaw.protocol.llm.ChatRequest;
 import com.sprinkleclaw.protocol.llm.ChatResponse;
 
@@ -15,6 +16,7 @@ import java.util.List;
  * @author sprinkle
  * @since 2026/3/17
  */
+@Stable
 @FunctionalInterface
 public interface LlmProvider {
 

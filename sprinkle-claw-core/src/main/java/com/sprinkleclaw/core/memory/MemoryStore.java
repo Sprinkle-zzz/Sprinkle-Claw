@@ -1,5 +1,7 @@
 package com.sprinkleclaw.core.memory;
 
+import com.sprinkleclaw.api.Experimental;
+
 import java.util.List;
 
 /**
@@ -12,6 +14,7 @@ import java.util.List;
  * @author sprinkle
  * @since 2026/4/24
  */
+@Experimental("MVP8 引入；检索语义（关键词 vs 向量）和分页 API 可能在 MVP10 调整")
 public interface MemoryStore {
 
     /**

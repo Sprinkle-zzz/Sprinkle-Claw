@@ -50,7 +50,7 @@ import java.util.*;
  * <pre>
  * Claw agent = ClawBuilder.create()
  *     .apiKey("sk-...")
- *     .model("deepseek-chat")
+ *     .model("deepseek-v4-flash")
  *     .workingDirectory(Path.of("/project"))
  *     .addTool(new MyCustomTool())
  *     .build();
@@ -59,6 +59,7 @@ import java.util.*;
  * @author sprinkle
  * @since 2026/3/20
  */
+@com.sprinkleclaw.api.Stable
 public final class ClawBuilder {
 
     private static final Logger log = LoggerFactory.getLogger(ClawBuilder.class);
@@ -67,7 +68,9 @@ public final class ClawBuilder {
     private String model;
     private String baseUrl;
     private String providerId;
-    private Path workingDirectory = Path.of(".");
+    private Path workingDirectory;
+    private Path skillsDirectory;
+    private Path tasksDirectory;
     private String systemPrompt = "";
     private int maxIterations = 200;
     private Duration loopTimeout = Duration.ofMinutes(30);
@@ -122,7 +125,7 @@ public final class ClawBuilder {
     }
 
     /**
-     * 设置模型名称（如 "claude-sonnet-4-20250514"）。
+     * 设置模型名称（如 "claude-opus-4-7"）。
      */
     public ClawBuilder model(String model) {
         this.model = model;
@@ -158,6 +161,22 @@ public final class ClawBuilder {
      */
     public ClawBuilder workdir(Path dir) {
         return workingDirectory(dir);
+    }
+
+    /**
+     * 设置 Skill 扫描目录。仅当 {@link #enableSkill()} 启用且未通过 {@link #addSkill} 编程式注册时必填。
+     */
+    public ClawBuilder skillsDirectory(Path dir) {
+        this.skillsDirectory = dir;
+        return this;
+    }
+
+    /**
+     * 设置 TaskBoard 持久化目录。仅当 {@link #enableTaskBoard()} 启用且未注入自定义 TaskStore 时必填。
+     */
+    public ClawBuilder tasksDirectory(Path dir) {
+        this.tasksDirectory = dir;
+        return this;
     }
 
     /**
@@ -436,17 +455,6 @@ public final class ClawBuilder {
     }
 
     /**
-     * 一键启用所有 agent-ext 扩展。
-     */
-    public ClawBuilder enableExtensions() {
-        this.enableSubAgent = true;
-        this.enableSkill = true;
-        this.enableTaskBoard = true;
-        this.enableBackgroundTasks = true;
-        return this;
-    }
-
-    /**
      * 设置 Agent 身份描述（压缩后自动重注入，需要 sprinkle-claw-agent-ext 在 classpath）。
      */
     public ClawBuilder identityPrompt(String prompt) {
@@ -564,6 +572,9 @@ public final class ClawBuilder {
             this.enableSkill = true;
         }
 
+        // MVP9.13: 启用对应开关时校验目录非空（默认值已删除，避免静默落到进程 cwd）
+        validateDirectories();
+
         AgentConfig config = AgentConfig.builder()
                 .maxLoopIterations(maxIterations)
                 .loopTimeout(loopTimeout)
@@ -578,7 +589,9 @@ public final class ClawBuilder {
                 .enableFileSnapshot(enableFileSnapshot)
                 .enableSubAgent(enableSubAgent)
                 .enableSkill(enableSkill)
+                .skillsDirectory(skillsDirectory)
                 .enableTaskBoard(enableTaskBoard)
+                .tasksDirectory(tasksDirectory)
                 .enableBackgroundTasks(enableBackgroundTasks)
                 .identityPrompt(identityPrompt)
                 .build();
@@ -587,8 +600,10 @@ public final class ClawBuilder {
         FileTimestampCache timestampCache = new FileTimestampCache();
         FileSnapshot fileSnapshot = buildFileSnapshot(config);
 
+        // 仅当启用文件类或 bash 工具时才注入 # Environment 段（cwd / platform）
+        boolean includeEnvironment = enableFileTools || enableBashTool;
         String fullPrompt = SystemPromptBuilder.build(
-                registry.definitions(), workingDirectory, systemPrompt);
+                registry.definitions(), workingDirectory, systemPrompt, includeEnvironment);
 
         AgentContext context = new AgentContext(fullPrompt, config, registry.definitions());
         if (modelContextWindow > 0) {
@@ -616,9 +631,12 @@ public final class ClawBuilder {
             log.info("已启用长期记忆（MemoryEnricherHook）");
         }
 
+        // 截断输出文件保存仅在 enableFileTools 时有意义（需 LLM 调 read_file 读取保存内容）；
+        // 否则即使有 workingDirectory 也不写盘，避免污染。
+        Path truncatorDir = enableFileTools ? workingDirectory : null;
         ToolOutputTruncator truncator = new ToolOutputTruncator(
                 config.toolOutputMaxLines(), config.toolOutputMaxBytes(),
-                config.largeOutputFileThreshold(), workingDirectory);
+                config.largeOutputFileThreshold(), truncatorDir);
         ToolExecutor toolExecutor = new ToolExecutor(registry, toolPolicy, toolErrorHandler, truncator);
 
         // MVP2: 构建 ContextManager
@@ -633,6 +651,30 @@ public final class ClawBuilder {
                 hooks, agentErrorHandler, metrics, tracer, contextManager, sessionManager);
 
         return new Claw(agentLoop, context, sessionManager, resources);
+    }
+
+    /**
+     * 校验启用对应开关时所需目录已配置。
+     * <p>SDK 嵌入场景默认零工具，目录字段无默认值；编码 / 文件场景必须显式提供，
+     * 避免静默落到调用方进程的 cwd。</p>
+     */
+    private void validateDirectories() {
+        boolean needsWorkingDir = enableFileTools || enableBashTool
+                || enableFileSnapshot || enableBackgroundTasks;
+        if (needsWorkingDir && workingDirectory == null) {
+            throw new IllegalStateException(
+                    "workingDirectory is required when any of enableFileTools / enableBashTool / "
+                            + "enableFileSnapshot / enableBackgroundTasks is enabled. "
+                            + "Call ClawBuilder.workingDirectory(Path).");
+        }
+        if (enableSkill && programmaticSkills.isEmpty() && skillsDirectory == null) {
+            throw new IllegalStateException(
+                    "enableSkill() requires either skillsDirectory(Path) or addSkill(...) (programmatic registration).");
+        }
+        if (enableTaskBoard && customTaskStore == null && tasksDirectory == null) {
+            throw new IllegalStateException(
+                    "enableTaskBoard() requires either tasksDirectory(Path) or taskStore(...) (custom store).");
+        }
     }
 
     /**
@@ -675,9 +717,7 @@ public final class ClawBuilder {
             prune = new PruneCompactor(200_000, estimator, protectedTools);
         }
 
-        Path transcriptDir = config.workingDirectory()
-                .resolve(".sprinkle-claw").resolve("transcripts");
-        AutoCompactor auto = new AutoCompactor(provider, estimator, transcriptDir);
+        AutoCompactor auto = new AutoCompactor(provider, estimator);
 
         return new ContextManager(estimator, micro, prune, auto,
                 config.compactionThreshold(), hooks);
@@ -701,7 +741,7 @@ public final class ClawBuilder {
 
         LlmConfig config = LlmConfig.builder()
                 .apiKey(resolvedApiKey != null ? resolvedApiKey : "")
-                .model(model != null ? model : "claude-sonnet-4-20250514")
+                .model(model != null ? model : "claude-opus-4-7")
                 .baseUrl(baseUrl != null ? baseUrl : "")
                 .headers(customHeaders)
                 .build();
@@ -763,10 +803,6 @@ public final class ClawBuilder {
         ServiceLoader<ToolProvider> providers = ServiceLoader.load(ToolProvider.class);
         var toolContext = new com.sprinkleclaw.tool.ToolContext(workingDirectory);
         for (ToolProvider tp : providers) {
-            if (tp.getClass().getName().equals("com.sprinkleclaw.tool.builtin.BuiltinToolProvider")) {
-                log.debug("跳过 BuiltinToolProvider（请使用 enableFileTools/enableBashTool）");
-                continue;
-            }
             log.debug("从 ToolProvider 发现工具: {}", tp.getClass().getName());
             registry.registerAll(tp.provideTools(toolContext));
         }
@@ -775,11 +811,81 @@ public final class ClawBuilder {
     }
 
     /**
-     * 创建构建器实例。
+     * 创建构建器实例（最低粒度，无任何预设）。
      *
      * @return 新的 ClawBuilder
      */
     public static ClawBuilder create() {
         return new ClawBuilder();
+    }
+
+    /**
+     * 嵌入式 Chat Bot 预设：零工具 + 启用多轮会话。
+     *
+     * <p>适用于客服 / 审批 / 数据分析等业务嵌入场景。后续仍需调用 {@link #apiKey}、
+     * {@link #model}（必填），按需 {@link #annotatedTools}、{@link #addSkill} 注册业务工具与技能。</p>
+     *
+     * <pre>{@code
+     * Claw claw = ClawBuilder.chatBot()
+     *         .apiKey(...).model(...)
+     *         .systemPrompt("你是客服")
+     *         .annotatedTools(new OrderTools())
+     *         .build();
+     * }</pre>
+     *
+     * @return 预配置的 ClawBuilder（已启用 InMemorySessionStore 支持 chat/resume）
+     * @since 0.10.0 (MVP9)
+     */
+    @com.sprinkleclaw.api.Experimental("MVP9 引入；预设组合可能根据用户反馈调整")
+    public static ClawBuilder chatBot() {
+        return new ClawBuilder()
+                .sessionStore(new com.sprinkleclaw.core.session.InMemorySessionStore());
+    }
+
+    /**
+     * 编码 Agent 预设：启用文件类 + bash + todo + compact 工具 + 文件快照保护。
+     *
+     * <p>适用于编码助手 / 自动化运维等"agent 即应用"场景。{@code workingDirectory}
+     * 必填，否则 {@link #build()} 会抛 {@link IllegalStateException}。</p>
+     *
+     * <pre>{@code
+     * Claw claw = ClawBuilder.codingAgent(Path.of("/work/myproject"))
+     *         .apiKey(...).model(...)
+     *         .build();
+     * }</pre>
+     *
+     * @param workingDirectory 工作目录
+     * @return 预配置的 ClawBuilder（已 enableCodingTools + enableFileSnapshot）
+     * @since 0.10.0 (MVP9)
+     */
+    @com.sprinkleclaw.api.Experimental
+    public static ClawBuilder codingAgent(java.nio.file.Path workingDirectory) {
+        return new ClawBuilder()
+                .workingDirectory(workingDirectory)
+                .enableCodingTools()
+                .enableFileSnapshot();
+    }
+
+    /**
+     * 业务 Agent 预设：零内置工具 + 启用 Skill 加载 + 多轮会话。
+     *
+     * <p>面向"领域知识 + 业务工具"的嵌入场景：通过 {@link #addSkill} 注入业务知识，
+     * 通过 {@link #annotatedTools} 注入业务操作。</p>
+     *
+     * <pre>{@code
+     * Claw claw = ClawBuilder.businessAgent()
+     *         .apiKey(...).model(...)
+     *         .addSkill("refund-policy", "退款政策", refundPolicyMd)
+     *         .annotatedTools(new RefundTools())
+     *         .build();
+     * }</pre>
+     *
+     * @return 预配置的 ClawBuilder（无内置工具 + 多轮会话支持）
+     * @since 0.10.0 (MVP9)
+     */
+    @com.sprinkleclaw.api.Experimental
+    public static ClawBuilder businessAgent() {
+        return new ClawBuilder()
+                .sessionStore(new com.sprinkleclaw.core.session.InMemorySessionStore());
     }
 }

@@ -54,7 +54,7 @@ public class JsonSerializationBenchmark {
                 ),
                 StopReason.TOOL_USE,
                 new Usage(1500, 300),
-                "claude-sonnet-4-20250514"
+                "claude-opus-4-7"
         );
 
         responseJson = mapper.writeValueAsString(response);

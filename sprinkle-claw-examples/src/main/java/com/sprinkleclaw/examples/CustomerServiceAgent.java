@@ -26,7 +26,7 @@ public class CustomerServiceAgent {
         try (Claw claw = ClawBuilder.create()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
-                .model("deepseek-chat")
+                .model("deepseek-v4-flash")
                 .systemPrompt("""
                         你是一位专业的电商客服，负责处理订单查询和退款申请。
                         始终保持礼貌，优先安抚用户情绪，然后解决问题。

@@ -19,7 +19,7 @@ class AnthropicResponseCollectorTest {
     @Test
     void buildTextResponse() {
         collector.setMessageId("msg_001");
-        collector.setModelId("claude-sonnet-4-20250514");
+        collector.setModelId("claude-opus-4-7");
         collector.setInputTokens(100);
         collector.startContentBlock(0, "text");
         collector.appendText("Hello ");
@@ -35,7 +35,7 @@ class AnthropicResponseCollectorTest {
         assertThat(response.stopReason()).isEqualTo(StopReason.END_TURN);
         assertThat(response.usage().inputTokens()).isEqualTo(100);
         assertThat(response.usage().outputTokens()).isEqualTo(50);
-        assertThat(response.modelId()).isEqualTo("claude-sonnet-4-20250514");
+        assertThat(response.modelId()).isEqualTo("claude-opus-4-7");
     }
 
     @Test

@@ -95,14 +95,9 @@ public class GatewayAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public UsageReporter usageReporter() {
-        return new AsyncBufferedUsageReporter(new UsageReporter() {
-            @Override
-            public void report(UsageEvent event) {
-                log.debug("Usage: tenant={}, user={}, input={}, output={}",
-                        event.tenantId(), event.userId(),
-                        event.inputTokens(), event.outputTokens());
-            }
-        });
+        return new AsyncBufferedUsageReporter(event -> log.debug("Usage: tenant={}, user={}, input={}, output={}",
+                event.tenantId(), event.userId(),
+                event.inputTokens(), event.outputTokens()));
     }
 
     @Bean

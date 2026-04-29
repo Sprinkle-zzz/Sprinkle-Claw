@@ -22,7 +22,7 @@ class ChatResponseTest {
     void textContent_concatenatesAllTextBlocks() {
         var response = new ChatResponse(
                 List.of(new TextBlock("Hello "), new TextBlock("world")),
-                StopReason.END_TURN, new Usage(10, 20), "claude-sonnet-4-20250514"
+                StopReason.END_TURN, new Usage(10, 20), "claude-opus-4-7"
         );
         assertThat(response.textContent()).isEqualTo("Hello world");
     }
@@ -34,7 +34,7 @@ class ChatResponseTest {
                         new TextBlock("thinking..."),
                         new ToolUseBlock("t1", "bash", Map.of("command", "ls"))
                 ),
-                StopReason.TOOL_USE, new Usage(10, 20), "claude-sonnet-4-20250514"
+                StopReason.TOOL_USE, new Usage(10, 20), "claude-opus-4-7"
         );
         assertThat(response.toolCalls()).hasSize(1);
         assertThat(response.toolCalls().getFirst().name()).isEqualTo("bash");

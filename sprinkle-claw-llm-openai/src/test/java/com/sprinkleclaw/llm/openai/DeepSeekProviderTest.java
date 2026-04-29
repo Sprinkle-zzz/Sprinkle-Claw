@@ -40,7 +40,7 @@ class DeepSeekProviderTest {
         LlmConfig config = LlmConfig.builder()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
-                .model("deepseek-chat")
+                .model("deepseek-v4-flash")
                 .build();
         provider = new OpenAiCompatibleProvider(config);
     }
