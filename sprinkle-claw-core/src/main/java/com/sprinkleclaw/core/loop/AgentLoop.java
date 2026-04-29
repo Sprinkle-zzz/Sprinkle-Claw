@@ -355,6 +355,17 @@ public final class AgentLoop {
      * @since 0.5.0 (MVP4)
      */
     public Flow.Publisher<AgentEvent> runStreaming() {
+        return runStreaming(null);
+    }
+
+    /**
+     * 流式运行 Agent 循环并支持生命周期回调。
+     *
+     * @param onLifecycleEnd 流式循环结束（含异常）时的回调；为 {@code null} 时无操作
+     * @return 事件发布者
+     * @since 0.10.0 (MVP9)
+     */
+    public Flow.Publisher<AgentEvent> runStreaming(Runnable onLifecycleEnd) {
         var publisher = new SubmissionPublisher<AgentEvent>(
                 Executors.newVirtualThreadPerTaskExecutor(),
                 256,
@@ -368,6 +379,13 @@ public final class AgentLoop {
                 publisher.submit(AgentEvent.agentError(e, AgentEvent.ErrorPhase.LLM_CALL));
             } finally {
                 publisher.close();
+                if (onLifecycleEnd != null) {
+                    try {
+                        onLifecycleEnd.run();
+                    } catch (Exception e) {
+                        log.warn("流式 lifecycle 回调异常: {}", e.getMessage());
+                    }
+                }
             }
         });
 
@@ -510,7 +528,9 @@ public final class AgentLoop {
                     ToolInterception interception = ToolInterception.CONTINUE;
                     for (LoopHook hook : hooks) {
                         interception = hook.beforeToolExecution(context, call);
-                        if (interception instanceof ToolInterception.Skip) break;
+                        if (interception instanceof ToolInterception.Skip) {
+                            break;
+                        }
                     }
 
                     switch (interception) {
