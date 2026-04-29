@@ -5,6 +5,199 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.10.0] - 2026-04-29
+
+### MVP9 · SDK 定位偏离修正 + 多 LLM 适配优化（破坏性变更）
+
+> 本版本以 SDK-First / 默认零工具哲学为主线，做了一次彻底的设计盲区审计与多 LLM 适配能力增强。包含多处破坏性变更（0.x 阶段直接重构，无外部用户）。
+
+#### 新增 —— `LlmConfig` 三层扩展点
+
+对齐文档 8.1.3 节的设计原则——**不做 vendor capability registry**（参考 LangChain4j Issue #1552），而是通过三层扩展点让用户显式覆盖 / 透传 / 开关：
+
+- **`LlmConfig.capabilities(LlmCapabilities)`**：用户覆盖能力声明。`OpenAiCompatibleProvider.capabilities()` 优先返回 `config.capabilities()`，否则用保守默认值（128K 上下文 / 16K 输出 / 启用 prompt cache）。理由：同一 baseUrl 下不同模型上下文长度差异巨大（DeepSeek-V3 64K vs GLM-4 128K vs Qwen-Max 30K），让用户在知道具体模型时显式覆盖比 SDK 维护一张永远滞后的厂商表更可靠
+- **`LlmConfig.customParameters(Map<String, Object>)` / `customParameter(name, value)`**：透传给 LLM 请求体的 vendor 私有字段。`OpenAiCompatibleProvider.buildRequestBody` 末尾平铺合并到 root JSON。一招覆盖所有厂商私有字段（Qwen 的 `enable_search`、DeepSeek 的 `frequency_penalty` / `response_format` 等），SDK 不需要维护任何 vendor 知识
+- **`LlmConfig.returnThinking(boolean)` + `thinkingFieldName(String)`**：推理字段开关。默认 `false` + `"reasoning_content"`（deepseek-v4-pro 约定）。启用后 `parseResponse` 和 `dispatchSseEvent` 解析对应字段映射为 `ContentBlock.ThinkingBlock`，与 Anthropic Thinking 处理路径一致
+
+> **设计哲学**：不做 vendor 嗅探（如 "baseUrl 含 deepseek 就特殊处理"），所有 vendor 差异通过这三层显式参数化，避免脆弱的隐式行为。
+
+#### 新增 —— Usage 字段双兼容
+
+OpenAI 标准用 `prompt_tokens_details.cached_tokens`，DeepSeek 用顶层 `prompt_cache_hit_tokens`。`OpenAiCompatibleProvider.parseResponse` / `dispatchSseEvent` 同时尝试读两个字段（谁有取谁），归一到 `Usage.cacheReadInputTokens`——无害兼容，不算"vendor 特殊处理"，自然支持 DeepSeek 自动 prompt cache。
+
+#### 新增 —— `OpenAiResponseCollector` 推理累积
+
+- 新增 `appendThinking(String)` / `setCachedTokens(int)` 方法
+- `build()` 中推理内容在 TextBlock 之前插入 `ThinkingBlock`（与 Anthropic 顺序一致）
+- `Usage` 构造从 3 参（含 reasoning）改为 5 参（含 cacheCreation + cacheRead）
+
+#### 新增 —— `examples` 增加 MemoryStore 自实现样例
+
+替代原规划中的 `sprinkle-claw-memory-jdbc` / `sprinkle-claw-memory-redis` 模块（已在文档 8.2 节撤销，理由：接口仅 5 个方法、JDBC 关键词检索是反模式、生产应走向量库）：
+
+- **`JdbcMemoryStoreExample.java`**：~80 行 JDBC 实现样例，H2 内存数据库真实可跑（`mvn exec:java -Dexec.mainClass=...JdbcMemoryStoreExample`）。展示 schema 初始化 / MERGE upsert / LIKE 关键词检索 / 完整 CRUD。明确标注关键词检索是反模式，仅作"如何自实现"的参考
+- **`PgVectorMemoryStoreExample.java`**：~120 行 pgvector 向量检索样例（生产推荐方向）。展示 PostgreSQL + pgvector 扩展 schema、`<=>` 余弦距离运算符、`EmbeddingClient` 接口契约（可对接 OpenAI Embeddings / DashScope / 本地 ONNX 等）。不实际启动 DB，仅作生产实现的起点
+- **`examples/pom.xml`**：新增 H2 2.2.224 依赖（仅 examples 模块，不污染其他模块依赖图）
+
+#### 增强 —— `@Agent` 结构化输出鲁棒性
+
+`StructuredOutputParser` / `JsonExtractor` / `AgentInvocationHandler` 三处改进：
+
+- **`JsonExtractor` 栈式扫描**（替代贪婪正则）：正确处理 JSON 字符串字面量内的大括号（如 `{"template": "use {var} syntax"}`）和转义引号（`{"text": "say \"hi\""}`）；多个 JSON 块时取第一个完整块；不平衡括号返回 `null` 避免抓到不完整片段
+- **`StructuredOutputParser` 递归 Schema 校验**：从原"仅类型 + 必填字段"扩展为完整递归校验：
+  - 字段类型校验（string / integer / number / boolean / object / array）
+  - 数组 `items` 类型校验（含 nested 元素）
+  - 嵌套对象递归校验（任意深度）
+  - `enum` 值校验
+  - 错误信息附带 JSONPath 风格的具体路径（如 `$.address.zipCode expected integer but got string`）
+- **`AgentInvocationHandler` 重试策略改进**：
+  - History 不无限累积——每次重试只保留 `[原始 user, 上轮 assistant, correction]`（schema 已在 system prompt 中无需重复），避免长 history 浪费 token
+  - 新增 SLF4J 日志：`debug`（自纠正成功）/ `warn`（每次解析失败 + 摘要 correction）/ `error`（致命错误 / 重试耗尽）
+- **测试补充**：`JsonExtractorTest` 增加 6 个栈式扫描测试（嵌套大括号 / 转义引号 / 多块择第一个 / 数组等）；`StructuredOutputParserTest` 增加 5 个测试覆盖类型不匹配 / 嵌套深路径 / 数组索引路径 / enum 校验 / 完整嵌套验证
+
+---
+
+#### 破坏性变更 —— `enableExtensions()` 删除
+
+一键开启 4 个扩展的便捷方法与全部 opt-in" 哲学相悖，0.x 阶段直接删除：
+
+- **删除 `ClawBuilder.enableExtensions()`**：用户必须显式调用 `enableSubAgent()` / `enableSkill()` / `enableTaskBoard()` / `enableBackgroundTasks()`
+- **删除 `SprinkleClawProperties.Agent.enableExtensions` 字段**：`sprinkle-claw.agent.enable-extensions: true` 配置不再生效，启动时 Spring 会按未知属性处理（默认警告，可通过 `--spring-config-on-not-found-fail-on-unknown=false` 屏蔽）
+- **删除 `SprinkleClawAutoConfiguration` 中对 `isEnableExtensions()` 的引用**
+
+迁移：用户改为在 yaml 中按需启用对应开关（如 `sprinkle-claw.agent.enable-skill: true`，待 9.11 多 model 配置重构后下沉到 instance）。
+
+#### 修复 —— `SystemPromptBuilder` 默认行为修正
+
+修正纯 chat agent 的 system prompt 被无条件污染的问题：
+
+- **工具列表为空时**：不再注入 `# Available Tools` 段和 `# Important Rules` 段；纯 chat agent 的 effective system prompt 完全等于用户传入的 `systemPrompt(...)`
+- **`# Environment` 段（cwd / platform）按需注入**：新增 `boolean includeEnvironment` 参数，由 `ClawBuilder` 在 `enableFileTools || enableBashTool` 启用时自动设为 true；其他场景不再泄漏 `Working directory: /xxx` 和 `Platform: Linux` 到上下文
+- **签名变更**：`SystemPromptBuilder.build(tools, workingDirectory, customPrompt)` → `build(tools, workingDirectory, customPrompt, includeEnvironment)`，新增 `build(tools, customPrompt)` 便捷重载
+- **指令措辞调整**：`Always use tools to interact with the system` 改为 `Use the provided tools when they are needed to complete the task`，避免命令式语气
+
+#### 破坏性变更 —— 目录类配置默认值删除
+
+避免静默落到调用方进程 cwd 的"陷阱默认值"，工作 / Skill / Task 目录均改为按需配置：
+
+- **`AgentConfig` 默认值删除**：`workingDirectory` / `skillsDirectory` / `tasksDirectory` 默认值由 `Path.of(".")` / `Path.of("skills")` / `Path.of(".tasks")` 改为 `null`；`AgentConfig.DEFAULT` 与 `Builder` 同步
+- **删除 `AgentConfig.sessionDirectory` 字段**：经全仓库 grep 确认零引用，纯死字段；同时移除 `AgentConfig.Builder.sessionDirectory(Path)` 方法和 record 第 15 个参数（参数顺序变更）
+- **`ClawBuilder` 启用开关时校验目录非空**：`enableFileTools` / `enableBashTool` / `enableFileSnapshot` / `enableBackgroundTasks` 启用任一即要求 `workingDirectory(Path)`；`enableSkill` 启用且无 `addSkill(...)` 编程式注册时要求 `skillsDirectory(Path)`；`enableTaskBoard` 启用且无 `taskStore(Object)` 自定义存储时要求 `tasksDirectory(Path)`。校验失败抛 `IllegalStateException` 并提示对应方法名
+- **`ClawBuilder` 新增**：`skillsDirectory(Path)` / `tasksDirectory(Path)` 两个 builder 方法
+- **`AutoCompactor` 移除 transcript 写盘**：transcript 持久化是 CLI 调试场景特性，不属于 SDK 默认职责。删除 `transcriptDir` 字段、构造器 `Path` 参数、`saveTranscript()` / `serializeTranscript()` / `escapeJson()` 等方法；构造器签名 `(LlmProvider, TokenEstimator, Path)` 简化为 `(LlmProvider, TokenEstimator)`。如需观察压缩前后状态，订阅 `AgentEvent.Compaction` 自行处理
+- **`ToolOutputTruncator` 写盘绑定 `enableFileTools`**：超大输出文件保存仅在 `enableFileTools` 启用时才有意义（LLM 必须能调 `read_file` 才能读取保存内容）。`ClawBuilder` 在创建 truncator 时仅当 `enableFileTools=true` 才传 `workingDirectory`，否则传 `null`——避免在无 file tools 场景下产生 LLM 无法访问的孤儿文件，也避免污染未启用 file tools 但开了 bash tool 的场景下的 cwd
+- **`SprinkleClawProperties.Agent.workingDirectory` 默认值删除**：从 `"."` 改为 `null`；`SprinkleClawAutoConfiguration` 仅当非空时调 `builder.workingDirectory(...)`
+
+> 净效果：默认路径上不再有任何 `.sprinkle-claw/` 子目录被偷偷创建。仅当用户显式 `enableFileTools(...) + workingDirectory(...)` 时才会在工作区下创建截断输出子目录，且此时 LLM 能 `read_file` 真正使用这些文件。
+
+#### 新增 —— Streaming API 门面
+
+`Claw` 暴露流式入口，对齐文档 8.3 节的"内核已就绪 / 门面缺最后一公里"缺口：
+
+- **`Claw.runStreaming(String)`** / **`chatStreaming(String)`** / **`resumeStreaming(String, String)`**：返回 `Flow.Publisher<AgentEvent>`，逐步推送 17 种事件类型（`LlmToken` / `ThinkingToken` / `ToolStart` / `ToolEnd` / `IterationComplete` / `AgentComplete` / `AgentError` 等）
+- **并发守卫复用**：与同步 `run/chat/resume` 和 `runAsync/chatAsync/resumeAsync` 共享 `running` AtomicBoolean。流式循环结束（含异常）时自动释放守卫，订阅者无需手动 close
+- **`AgentLoop.runStreaming(Runnable onLifecycleEnd)`**：新增重载，virtual thread `finally` 块调用 callback；保留 0 参版本
+- **`Claw.errorPublisher`**：lazy publisher 实现（订阅者首次 request 时触发 onError），用于并发守卫拒绝场景，避免 hot publisher 在订阅前 submit 丢事件
+- **`examples/StreamingAgent.java`**：DeepSeek 模型 + `Flow.Subscriber` 控制台示例，展示 `LlmToken` 逐字符渲染、`ToolStart/ToolEnd` 进度提示、`AgentComplete` 终态汇总
+
+#### 破坏性变更 —— Spring Boot Starter 多 model 配置
+
+`sprinkle-claw-spring-boot-starter` 从单 LLM 配置升级为多实例模型，对齐"嵌入 agent + 构建 agent 应用"双场景下的多 agent 共存需求：
+
+**配置 schema 变更**（旧 schema 不兼容）：
+```yaml
+# 旧（已删除）
+sprinkle-claw:
+  llm:
+    api-key: xxx
+    model: claude-opus-4-7
+    base-url: ...
+
+# 新
+sprinkle-claw:
+  agent:                    # 全局默认（被 instance 同名字段覆盖）
+    max-iterations: 200
+    system-prompt: "你是助手"
+  llm:
+    primary: claude         # ≥2 instance 必填，1 instance 时自动作为 primary
+    instances:
+      claude:
+        provider: anthropic
+        api-key: ${ANTHROPIC_API_KEY}
+        model: claude-opus-4-7
+      qa-bot:
+        provider: openai
+        base-url: https://api.deepseek.com/v1
+        api-key: ${DEEPSEEK_API_KEY}
+        model: deepseek-v4-flash
+        system-prompt: "你是客服机器人"   # 覆盖全局
+        max-iterations: 5                # 覆盖全局
+```
+
+**用户代码变化**：
+```java
+@Autowired Claw claw;                          // 注入 primary（claude）
+@Autowired @Qualifier("qa-bot") Claw qaBot;
+```
+
+**实现要点**：
+- **`SprinkleClawProperties.Llm`**：移除平铺 `provider` / `apiKey` / `model` / `baseUrl` 4 字段，新增 `String primary` + `Map<String, Instance> instances`（`LinkedHashMap` 保插入顺序）；`Instance` 内部类含 LLM 字段 + agent/tools 覆盖字段（包装类型 `Integer` / `Duration` / `String` / `List`，`null` 沿用全局）
+- **`SprinkleClawFactory`**：新增工厂 bean，`create(instanceName)` 方法将 instance 字段 merge 全局 `agent`/`tools` 默认后调 `ClawBuilder` 构建 Claw；`@ConditionalOnMissingBean` 允许测试 mock 覆盖
+- **`SprinkleClawBeanRegistrar`**：新增 `BeanDefinitionRegistryPostProcessor`，使用 `Binder` 在 BeanDefinition 阶段读取 properties，遍历 `instances` 注册命名 `RootBeanDefinition`（`factoryBeanName=sprinkleClawFactory` + `factoryMethodName=create` + 构造参数 instance 名 + `destroyMethodName=close`）。primary 实例 `setPrimary(true)`。必须以 `static @Bean` 暴露避免 BeanFactory 过早实例化
+- **Primary 选择规则**：显式 `primary` 字段 ≥ 仅 1 个 instance 自动作为 primary ≥ ≥2 instance 未指定 primary → 启动报错；primary 指向不存在的 instance 名 → 启动报错（错误消息列出所有可用 instance）
+- **0 instance 场景**：BeanRegistrar 不注册任何 Claw bean，`@Autowired Claw` 抛 `NoSuchBeanDefinitionException`（不再有"默认配置 Claw"兜底）
+- **资源释放**：每个 BeanDefinition 设置 `destroyMethodName=close`，Spring 容器关闭时正确释放 MCP 连接等资源
+- **`SprinkleClawMultiInstanceTest`**：6 个测试覆盖 0/1/≥2 instance、显式/缺失/错指 primary、agent 全局默认 + instance 覆盖等关键路径
+
+#### 文档 —— README 按"嵌入 / 构建"两条路径分流
+
+`README.md` 从 294 行扁平特性堆叠重写为按用户场景分流的导航文档：
+
+- **顶部"选你的路径"导航表**：用户 30 秒内识别自己属于"嵌入 agent 能力"还是"构建 agent 应用"，明确两类场景的工具开关边界
+- **路径 A（嵌入）**：5 个段落覆盖最小代码 / 业务 `@Tool` 注册 / Spring Boot 多 model 配置 / 流式输出 SSE / 长期记忆，对应客服 / 审批 / 数据分析等业务场景
+- **路径 B（构建）**：4 个段落覆盖 `enableCodingTools()` 一键启用 / 工具开关详细表 / MCP & Skill / 多 Agent 工作流编排，对应编码助手 / 研究工具场景
+- **工具开关边界明示**：`BashTool` / `FileSnapshot` / `TodoWrite` / `BackgroundTasks` 在 B.2 表格中标注 "嵌入场景禁止开启"
+- **删除 99 行扁平特性表**：替换为按"协议层 / LLM Provider / 核心引擎 / 可观测性 / 会话与记忆 / 构建场景扩展 / 协议适配 / 企业级网关 / Spring Boot / Workflow"分层的紧凑摘要
+- **模块说明新增"路径 A/B 必需"列**：`tool-builtin` 路径 A 不需要、路径 B 必需；`agent-ext` 路径 A 仅 Skill/Guardrails，路径 B 全需要
+- **路线图更新**：MVP9（进行中）+ MVP10（规划中）
+
+#### 破坏性变更 —— 删除 BuiltinToolProvider 死类
+
+`tool-builtin/.../BuiltinToolProvider.java`：MVP8 移除 SPI 文件后该类已无任何真实引用，仅 `ClawBuilder.discoverAndRegisterTools` 中残留一行字符串类名过滤"防御性"提及。按"质疑特性存在合理性"原则直接删除：
+
+- **删除 `BuiltinToolProvider.java`** 整个类
+- **简化 `ClawBuilder.discoverAndRegisterTools`**：移除 `tp.getClass().getName().equals("...BuiltinToolProvider")` 字符串比较，ServiceLoader 循环回归正常发现逻辑
+- 内置工具仍然通过 `enableFileTools()` / `enableBashTool()` / `enableCodingTools()` 显式启用（MVP8 路径不变）
+
+#### 新增 —— ClawBuilder Profile 预设
+
+降低新用户认知负担，按典型场景提供 3 个静态工厂方法：
+
+- **`ClawBuilder.chatBot()`**：嵌入式 Chat Bot 预设（零工具 + `InMemorySessionStore` 多轮会话）
+- **`ClawBuilder.codingAgent(Path workdir)`**：编码 Agent 预设（`enableCodingTools` + `enableFileSnapshot`，`workingDirectory` 强制传入）
+- **`ClawBuilder.businessAgent()`**：业务 Agent 预设（零内置工具 + 多轮会话，面向 `addSkill` + `@Tool` 业务嵌入场景）
+- 三个方法均标 `@Experimental`，预设组合可能根据实际反馈调整
+
+#### 新增 —— API 稳定性注解
+
+新增 `com.sprinkleclaw.api.Stable` / `com.sprinkleclaw.api.Experimental`（在 `sprinkle-claw-protocol` 模块，所有上层模块免依赖即可使用）。已标注关键 API：
+
+| API | 等级 | 备注 |
+|---|---|---|
+| `Claw` | `@Stable` | 主门面 |
+| `Claw.runStreaming/chatStreaming/resumeStreaming` | `@Experimental` | MVP9 新引入，订阅时序与并发守卫策略可能在 MVP10 调整 |
+| `ClawBuilder` | `@Stable` | 主 Builder |
+| `ClawBuilder.chatBot/codingAgent/businessAgent` | `@Experimental` | MVP9 新引入预设 |
+| `LlmProvider` SPI | `@Stable` | 多厂商适配核心契约 |
+| `AgentTool` SPI | `@Stable` | 工具契约 |
+| `ToolProvider` SPI | `@Stable` | 工具发现契约 |
+| `SessionStore` SPI | `@Stable` | 会话持久化契约 |
+| `MemoryStore` SPI | `@Experimental` | 检索语义（关键词 vs 向量）和分页 API 可能在 MVP10 调整 |
+
+约定：未明确标 `@Stable` 的 API 默认按 `@Experimental` 对待——0.x 阶段大部分仍属实验性。
+
+---
+
 ## [0.9.0] - 2026-04-25
 
 ### MVP8 · SDK 核心清理 + 生产就绪
