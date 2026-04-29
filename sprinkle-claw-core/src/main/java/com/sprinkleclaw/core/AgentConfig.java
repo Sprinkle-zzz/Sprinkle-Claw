@@ -17,14 +17,13 @@ import java.util.Set;
  * @param doomLoopThreshold           Doom Loop 检测阈值（同一工具+相同参数连续调用次数，默认 4）
  * @param toolOutputMaxLines          工具输出截断行数上限（默认 2000）
  * @param toolOutputMaxBytes          工具输出截断字节上限（默认 50KB）
- * @param workingDirectory            工作目录
+ * @param workingDirectory            工作目录（仅文件类工具 / bash 工具 / 文件快照 / 后台任务等启用时必填）
  * @param blockedCommands             被禁止的命令列表
  * @param compactionThreshold         触发自动压缩的 token 阈值（默认 100K）
  * @param microCompactKeepRecent      MicroCompactor 保留最近 N 个 tool_result 不替换
  * @param pruneProtectTokens          Prune 保护区大小（最近 N tokens 不裁剪，0 表示使用动态计算）
  * @param pruneMinimumTokens          Prune 最小裁剪量（低于此值不执行裁剪，0 表示使用动态计算）
  * @param persistSessions             是否启用会话持久化
- * @param sessionDirectory            会话存储目录
  * @param autoSaveInterval            每 N 轮自动保存一次（0 禁用）
  * @param enableTodoWrite             是否启用 TodoWrite 工具
  * @param todoNagThreshold            TodoWrite 提醒间隔（多轮未更新后注入提醒）
@@ -41,9 +40,9 @@ import java.util.Set;
  * @param subAgentMaxIterations       子 Agent 最大循环轮次
  * @param subAgentToolFilter          子 Agent 禁止使用的工具名（自动排除 sub_agent）
  * @param enableSkill                 是否启用 Skill 加载
- * @param skillsDirectory             Skill 目录路径
+ * @param skillsDirectory             Skill 目录路径（{@code enableSkill} 启用且无编程式 Skill 时必填）
  * @param enableTaskBoard             是否启用持久化任务板
- * @param tasksDirectory              任务持久化目录
+ * @param tasksDirectory              任务持久化目录（{@code enableTaskBoard} 启用且未注入自定义 TaskStore 时必填）
  * @param enableBackgroundTasks       是否启用后台任务
  * @param backgroundTaskTimeout       单个后台任务超时时间
  * @param protectedTools              Micro/Prune 压缩时跳过这些工具的输出
@@ -68,7 +67,6 @@ public record AgentConfig(
         int pruneProtectTokens,
         int pruneMinimumTokens,
         boolean persistSessions,
-        Path sessionDirectory,
         int autoSaveInterval,
         boolean enableTodoWrite,
         int todoNagThreshold,
@@ -98,16 +96,16 @@ public record AgentConfig(
     public static final AgentConfig DEFAULT = new AgentConfig(
             200, Duration.ofMinutes(30), 5, 3,
             4, 2000, 50 * 1024,
-            Path.of("."), List.of(),
+            null, List.of(),
             100_000, 3, 0, 0,
-            false, Path.of(".sessions"), 5,
+            false, 5,
             false, 3, false, true, 0,
             // MVP4 defaults
             ResilienceConfig.DEFAULT, false,
             // MVP3 defaults
             false, 30, List.of(),
-            false, Path.of("skills"),
-            false, Path.of(".tasks"),
+            false, null,
+            false, null,
             false, Duration.ofMinutes(5),
             Set.of(), "", 100 * 1024
     );
@@ -130,14 +128,13 @@ public record AgentConfig(
         private int doomLoopThreshold = 4;
         private int toolOutputMaxLines = 2000;
         private int toolOutputMaxBytes = 50 * 1024;
-        private Path workingDirectory = Path.of(".");
+        private Path workingDirectory;
         private List<String> blockedCommands = List.of();
         private int compactionThreshold = 100_000;
         private int microCompactKeepRecent = 3;
         private int pruneProtectTokens = 0;
         private int pruneMinimumTokens = 0;
         private boolean persistSessions = false;
-        private Path sessionDirectory = Path.of(".sessions");
         private int autoSaveInterval = 5;
         private boolean enableTodoWrite = false;
         private int todoNagThreshold = 3;
@@ -152,9 +149,9 @@ public record AgentConfig(
         private int subAgentMaxIterations = 30;
         private List<String> subAgentToolFilter = List.of();
         private boolean enableSkill = false;
-        private Path skillsDirectory = Path.of("skills");
+        private Path skillsDirectory;
         private boolean enableTaskBoard = false;
-        private Path tasksDirectory = Path.of(".tasks");
+        private Path tasksDirectory;
         private boolean enableBackgroundTasks = false;
         private Duration backgroundTaskTimeout = Duration.ofMinutes(5);
         private Set<String> protectedTools = Set.of();
@@ -255,14 +252,6 @@ public record AgentConfig(
          */
         public Builder persistSessions(boolean v) {
             this.persistSessions = v;
-            return this;
-        }
-
-        /**
-         * 设置会话存储目录。
-         */
-        public Builder sessionDirectory(Path v) {
-            this.sessionDirectory = v;
             return this;
         }
 
@@ -404,7 +393,7 @@ public record AgentConfig(
                     workingDirectory, blockedCommands,
                     compactionThreshold, microCompactKeepRecent,
                     pruneProtectTokens, pruneMinimumTokens,
-                    persistSessions, sessionDirectory, autoSaveInterval,
+                    persistSessions, autoSaveInterval,
                     enableTodoWrite, todoNagThreshold, enableFileSnapshot,
                     toolOutputDynamicTruncation, modelContextWindow,
                     // MVP4

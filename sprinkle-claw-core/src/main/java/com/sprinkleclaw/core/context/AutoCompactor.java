@@ -9,11 +9,6 @@ import com.sprinkleclaw.protocol.message.Message.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,12 +29,14 @@ import java.util.Map;
  *
  * <h3>压缩流程</h3>
  * <ol>
- *   <li>将当前完整对话历史保存到 transcript 文件（可回溯）</li>
  *   <li>检测是否存在前次摘要（判断首条消息是否为压缩标记）</li>
  *   <li>首次：全量摘要；后续：增量摘要（包含前次摘要 + 新对话）</li>
  *   <li>替换消息历史为：[User: "{marker}\n\n{summary}"] + [Assistant: "Understood..."]</li>
  *   <li>回放最后一条用户消息（确保模型知道当前任务）</li>
  * </ol>
+ *
+ * <p><b>注意</b>：本类不写盘——transcript 持久化是 CLI 调试场景特性，不属于 SDK 默认职责。
+ * 如需观察压缩前后状态，订阅 {@code AgentEvent.Compaction} 自行处理。</p>
  *
  * @author sprinkle
  * @since 2026/3/24
@@ -116,7 +113,6 @@ public final class AutoCompactor {
 
     private final LlmProvider llm;
     private final TokenEstimator tokenEstimator;
-    private final Path transcriptDir;
     private final int summaryMaxTokens;
 
     /**
@@ -124,12 +120,10 @@ public final class AutoCompactor {
      *
      * @param llm            LLM 提供者（用于生成摘要）
      * @param tokenEstimator token 估算器
-     * @param transcriptDir  transcript 文件存储目录
      */
-    public AutoCompactor(LlmProvider llm, TokenEstimator tokenEstimator, Path transcriptDir) {
+    public AutoCompactor(LlmProvider llm, TokenEstimator tokenEstimator) {
         this.llm = llm;
         this.tokenEstimator = tokenEstimator;
-        this.transcriptDir = transcriptDir;
         this.summaryMaxTokens = 4000;
     }
 
@@ -145,21 +139,18 @@ public final class AutoCompactor {
         int tokensBefore = tokenEstimator.estimate(messages);
         int messagesCount = messages.size();
 
-        // 1. 保存 transcript
-        saveTranscript(context);
-
-        // 2. 查找最后一条用户消息用于回放
+        // 1. 查找最后一条用户消息用于回放
         UserMessage lastUserMsg = findLastUserMessage(messages);
 
-        // 3. 检测是否存在前次摘要（增量 vs 全量）
+        // 2. 检测是否存在前次摘要（增量 vs 全量）
         String previousSummary = findPreviousSummary(messages);
 
-        // 4. 更新压缩计数器
+        // 3. 更新压缩计数器
         Integer compactionCount = context.getAttribute(COMPACTION_COUNT_KEY);
         int count = (compactionCount != null) ? compactionCount + 1 : 1;
         context.setAttribute(COMPACTION_COUNT_KEY, count);
 
-        // 5. 生成摘要
+        // 4. 生成摘要
         String summary;
         try {
             if (previousSummary != null) {
@@ -246,7 +237,9 @@ public final class AutoCompactor {
      * @return 前次摘要内容，不存在时返回 null
      */
     private String findPreviousSummary(List<Message> messages) {
-        if (messages.isEmpty()) return null;
+        if (messages.isEmpty()) {
+            return null;
+        }
         Message first = messages.getFirst();
         if (first instanceof UserMessage um) {
             String text = extractTextFromBlocks(um.content());
@@ -312,65 +305,7 @@ public final class AutoCompactor {
     }
 
     /**
-     * 将完整消息历史序列化并保存到 transcript 文件。
-     */
-    private void saveTranscript(AgentContext context) {
-        try {
-            Files.createDirectories(transcriptDir);
-
-            String sessionId = context.sessionId() != null ? context.sessionId() : "anonymous";
-            int compactionIndex = context.compactionCount() + 1;
-            String filename = sessionId + "_" + String.format("%03d", compactionIndex) + ".json";
-
-            Path file = transcriptDir.resolve(filename);
-            String json = serializeTranscript(context, compactionIndex);
-            Files.writeString(file, json, StandardCharsets.UTF_8);
-
-            log.debug("[AutoCompactor] Transcript 已保存: {}", file);
-        } catch (IOException e) {
-            log.warn("[AutoCompactor] Transcript 写入失败", e);
-        }
-    }
-
-    /**
-     * 将 transcript 数据序列化为简单 JSON 格式。
-     */
-    private static String serializeTranscript(AgentContext context, int compactionIndex) {
-        var sb = new StringBuilder();
-        sb.append("{\n");
-        sb.append("  \"sessionId\": \"").append(escapeJson(
-                context.sessionId() != null ? context.sessionId() : "anonymous")).append("\",\n");
-        sb.append("  \"compactionIndex\": ").append(compactionIndex).append(",\n");
-        sb.append("  \"timestamp\": \"").append(Instant.now()).append("\",\n");
-        sb.append("  \"messageCount\": ").append(context.mutableMessages().size()).append(",\n");
-        sb.append("  \"messages\": [\n");
-
-        List<Message> messages = context.mutableMessages();
-        for (int i = 0; i < messages.size(); i++) {
-            Map<String, Object> msgMap = serializeMessage(messages.get(i));
-            sb.append("    {");
-            int entryIdx = 0;
-            for (var entry : msgMap.entrySet()) {
-                if (entryIdx++ > 0) sb.append(", ");
-                sb.append("\"").append(entry.getKey()).append("\": ");
-                if (entry.getValue() instanceof String s) {
-                    sb.append("\"").append(escapeJson(s)).append("\"");
-                } else {
-                    sb.append(entry.getValue());
-                }
-            }
-            sb.append("}");
-            if (i < messages.size() - 1) sb.append(",");
-            sb.append("\n");
-        }
-
-        sb.append("  ]\n");
-        sb.append("}\n");
-        return sb.toString();
-    }
-
-    /**
-     * 将单条消息序列化为简单 Map 结构。
+     * 将单条消息序列化为简单 Map 结构（供 {@link #extractNewConversation} 使用）。
      */
     private static Map<String, Object> serializeMessage(Message msg) {
         var map = new LinkedHashMap<String, Object>();
@@ -411,15 +346,4 @@ public final class AutoCompactor {
         return sb.toString();
     }
 
-    /**
-     * 简单 JSON 字符串转义。
-     */
-    private static String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
 }

@@ -1,5 +1,7 @@
 package com.sprinkleclaw.core.session;
 
+import com.sprinkleclaw.api.Stable;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +19,7 @@ import java.util.Optional;
  * @author sprinkle
  * @since 2026/3/25
  */
+@Stable
 public interface SessionStore {
 
     /**

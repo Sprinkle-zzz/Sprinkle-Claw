@@ -66,7 +66,7 @@ public class MultiAgentCollaboration {
         LlmConfig config = LlmConfig.builder()
                 .apiKey(apiKey)
                 .baseUrl("https://api.deepseek.com/v1")
-                .model("deepseek-chat")
+                .model("deepseek-v4-flash")
                 .build();
         return ServiceLoader.load(LlmProviderFactory.class)
                 .findFirst()

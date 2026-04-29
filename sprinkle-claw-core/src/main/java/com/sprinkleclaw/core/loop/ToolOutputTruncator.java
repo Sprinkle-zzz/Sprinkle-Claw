@@ -12,11 +12,10 @@ import java.nio.file.Path;
 /**
  * 工具输出截断器，防止超长输出占用过多上下文窗口。
  *
- * <p>当输出超过 {@code maxLines} 行或 {@code maxBytes} 字节时：</p>
- * <ol>
- *   <li>将完整输出保存到临时文件（{@code .sprinkle-claw/truncated/}）</li>
- *   <li>返回截断后的预览文本，附带提示 LLM 使用 {@code read_file} 分段读取</li>
- * </ol>
+ * <p>当输出超过 {@code maxLines} 行或 {@code maxBytes} 字节时返回截断预览。
+ * 仅当 {@code workingDir} 非空（由 {@code ClawBuilder} 在 {@code enableFileTools} 时传入）时
+ * 才将完整输出额外写入 {@code workingDir/.sprinkle-claw/truncated/} 并附带 {@code read_file} 提示——
+ * 避免在无 file tools 场景下产生孤儿文件。</p>
  *
  * <h3>自适应截断（v1.1 新增）</h3>
  * <p>当启用动态截断（{@code toolOutputDynamicTruncation = true}）时，
@@ -58,17 +57,19 @@ public final class ToolOutputTruncator {
     private final Path largeOutputDir;
 
     /**
-     * @param maxLines                  最大输出行数（默认 2000）
-     * @param maxBytes                  最大输出字节数（默认 50KB）
-     * @param largeOutputFileThreshold  超过此大小的输出转为文件引用（字节，0 表示禁用）
-     * @param workingDir                工作目录（截断文件存放在其子目录下）
+     * @param maxLines                 最大输出行数（默认 2000）
+     * @param maxBytes                 最大输出字节数（默认 50KB）
+     * @param largeOutputFileThreshold 超过此大小的输出转为文件引用（字节，0 表示禁用）
+     * @param workingDir               工作目录；{@code null} 表示仅做内存截断，不写盘（无 file tools 场景）
      */
     public ToolOutputTruncator(int maxLines, int maxBytes, int largeOutputFileThreshold, Path workingDir) {
         this.maxLines = maxLines;
         this.maxBytes = maxBytes;
         this.largeOutputFileThreshold = largeOutputFileThreshold;
-        this.truncateDir = workingDir.resolve(".sprinkle-claw").resolve("truncated");
-        this.largeOutputDir = workingDir.resolve(".sprinkle-claw").resolve("large-outputs");
+        this.truncateDir = workingDir != null
+                ? workingDir.resolve(".sprinkle-claw").resolve("truncated") : null;
+        this.largeOutputDir = workingDir != null
+                ? workingDir.resolve(".sprinkle-claw").resolve("large-outputs") : null;
     }
 
     /**
@@ -105,8 +106,12 @@ public final class ToolOutputTruncator {
             return BYTES_RELAXED;
         }
         double usage = (double) cachedTokens / modelContextWindow;
-        if (usage < 0.5) return BYTES_RELAXED;
-        if (usage < 0.75) return BYTES_MODERATE;
+        if (usage < 0.5) {
+            return BYTES_RELAXED;
+        }
+        if (usage < 0.75) {
+            return BYTES_MODERATE;
+        }
         return BYTES_TIGHT;
     }
 
@@ -167,6 +172,10 @@ public final class ToolOutputTruncator {
      * @return 文件路径引用文本
      */
     private String saveAsFileReference(String toolName, String output, int bytes) {
+        if (largeOutputDir == null) {
+            // 无 workingDir（未启用 file tools）：降级为内存截断预览，不写盘
+            return truncate(output, maxBytes) + "\n\n[Output truncated]";
+        }
         try {
             Files.createDirectories(largeOutputDir);
             String filename = toolName + "_" + System.currentTimeMillis() + ".txt";
@@ -195,8 +204,12 @@ public final class ToolOutputTruncator {
      * 格式化字节数为人类可读格式。
      */
     private static String formatBytes(int bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        }
         return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
@@ -230,6 +243,9 @@ public final class ToolOutputTruncator {
      * 将完整输出保存到临时文件。
      */
     private Path saveFullOutput(String toolName, String output) {
+        if (truncateDir == null) {
+            return null;
+        }
         try {
             Files.createDirectories(truncateDir);
             String fileName = toolName + "_" + System.currentTimeMillis() + ".txt";

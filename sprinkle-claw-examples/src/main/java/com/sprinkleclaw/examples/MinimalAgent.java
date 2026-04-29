@@ -21,7 +21,7 @@ public class MinimalAgent {
         try (Claw claw = ClawBuilder.create()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
-                .model("deepseek-chat")
+                .model("deepseek-v4-flash")
                 .systemPrompt("你是一个友好的助手，请用中文回答。")
                 .build()) {
 

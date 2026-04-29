@@ -1,20 +1,19 @@
 package com.sprinkleclaw.workflow.agent;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sprinkleclaw.llm.LlmProvider;
 import com.sprinkleclaw.protocol.llm.ChatRequest;
 import com.sprinkleclaw.protocol.llm.ChatResponse;
-import com.sprinkleclaw.protocol.llm.StopReason;
 import com.sprinkleclaw.protocol.message.ContentBlock;
 import com.sprinkleclaw.protocol.message.Message;
 import com.sprinkleclaw.workflow.agent.structured.GenerateResponseToolMode;
 import com.sprinkleclaw.workflow.agent.structured.ParseResult;
 import com.sprinkleclaw.workflow.agent.structured.StructuredOutputException;
 import com.sprinkleclaw.workflow.agent.structured.StructuredOutputParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +25,8 @@ import java.util.Map;
  * @since 2026/4/12
  */
 final class AgentInvocationHandler implements InvocationHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentInvocationHandler.class);
 
     private final Map<Method, AgentMethodMetadata> metadataMap;
     private final AgentFactoryConfig config;
@@ -92,55 +93,74 @@ final class AgentInvocationHandler implements InvocationHandler {
 
     /**
      * PROMPT_JSON 模式：在 system prompt 注入 schema，解析失败时自纠正重试。
+     *
+     * <p>MVP10 改进：</p>
+     * <ul>
+     *   <li>重试时 history 不无限累积——只保留 [原始 user, 上轮 assistant, correction]，
+     *       避免长 history 浪费 token；schema 已经在 system prompt 中</li>
+     *   <li>记录 debug/warn 日志便于调试解析失败原因</li>
+     * </ul>
      */
     private Object invokeWithPromptJson(AgentMethodMetadata meta, String userMessage,
                                         String systemPrompt, LlmProvider provider) {
         var parser = new StructuredOutputParser<>(meta.returnType(), meta.returnSchema());
+        Message originalUser = Message.UserMessage.of(userMessage);
 
         // 首次调用
-        var history = new ArrayList<Message>();
-        history.add(Message.UserMessage.of(userMessage));
-
         ChatRequest request = ChatRequest.builder()
                 .systemPrompt(systemPrompt)
-                .messages(List.copyOf(history))
+                .messages(List.of(originalUser))
                 .build();
         ChatResponse response = provider.chat(request);
-        history.add(new Message.AssistantMessage(
-                List.of(new ContentBlock.TextBlock(response.textContent())),
-                response.stopReason()));
 
-        // 自纠正循环
         for (int attempt = 0; attempt <= meta.maxCorrectionRetries(); attempt++) {
             String textToParse = response.textContent();
             ParseResult<?> result = parser.parse(textToParse);
 
             switch (result) {
                 case ParseResult.Success<?> s -> {
+                    if (attempt > 0) {
+                        log.debug("[StructuredOutput] 自纠正成功（第 {} 次重试后）", attempt);
+                    }
                     return s.value();
                 }
                 case ParseResult.Fatal<?> f -> {
+                    log.error("[StructuredOutput] 解析致命错误: {}", f.error());
                     throw new StructuredOutputException(f.error());
                 }
                 case ParseResult.Retry<?> r -> {
                     if (attempt == meta.maxCorrectionRetries()) {
+                        log.error("[StructuredOutput] 重试次数耗尽（{}/{} 次），最后错误: {}",
+                                attempt, meta.maxCorrectionRetries(), r.correctionPrompt());
                         throw new StructuredOutputException(
                                 "Max correction retries exceeded. Last correction: " + r.correctionPrompt());
                     }
-                    // 追加修正提示并重新调用
-                    history.add(Message.UserMessage.of(r.correctionPrompt()));
+                    log.warn("[StructuredOutput] 第 {} 次解析失败，发送 correction（{}）",
+                            attempt + 1, summarize(r.correctionPrompt()));
+
+                    // history 仅保留 [原始 user, 上轮 assistant, correction]——schema 在 system 中无需重复
+                    var assistantTurn = new Message.AssistantMessage(
+                            List.of(new ContentBlock.TextBlock(textToParse)),
+                            response.stopReason());
+                    var correction = Message.UserMessage.of(r.correctionPrompt());
+
                     ChatRequest retryRequest = ChatRequest.builder()
                             .systemPrompt(systemPrompt)
-                            .messages(List.copyOf(history))
+                            .messages(List.of(originalUser, assistantTurn, correction))
                             .build();
                     response = provider.chat(retryRequest);
-                    history.add(new Message.AssistantMessage(
-                            List.of(new ContentBlock.TextBlock(response.textContent())),
-                            response.stopReason()));
                 }
             }
         }
         throw new StructuredOutputException("Unreachable: correction loop exited without result");
+    }
+
+    private static String summarize(String s) {
+        if (s == null) {
+            return "<null>";
+        }
+        String oneLine = s.replace('\n', ' ');
+        return oneLine.length() <= 120 ? oneLine : oneLine.substring(0, 120) + "...";
     }
 
     private Object handleObjectMethod(Object proxy, Method method, Object[] args) {

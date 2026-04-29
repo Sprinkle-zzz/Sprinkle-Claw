@@ -21,7 +21,7 @@ public class CodingAgent {
         try (Claw claw = ClawBuilder.create()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
-                .model("deepseek-chat")
+                .model("deepseek-v4-flash")
                 .workingDirectory(Path.of("."))
                 .enableCodingTools()
                 .systemPrompt("你是一个 Java 编程助手，帮助用户读取和修改代码。")

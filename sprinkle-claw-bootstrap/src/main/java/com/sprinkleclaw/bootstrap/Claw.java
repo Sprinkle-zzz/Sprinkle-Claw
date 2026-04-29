@@ -1,8 +1,11 @@
 package com.sprinkleclaw.bootstrap;
 
+import com.sprinkleclaw.api.Experimental;
+import com.sprinkleclaw.api.Stable;
 import com.sprinkleclaw.core.AgentResult;
 import com.sprinkleclaw.core.context.AgentContext;
 import com.sprinkleclaw.core.loop.AgentLoop;
+import com.sprinkleclaw.core.loop.event.AgentEvent;
 import com.sprinkleclaw.core.session.SessionId;
 import com.sprinkleclaw.core.session.SessionManager;
 import com.sprinkleclaw.core.session.SessionStore;
@@ -16,6 +19,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -31,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author sprinkle
  * @since 2026/3/20
  */
+@Stable
 public final class Claw implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(Claw.class);
@@ -172,6 +177,105 @@ public final class Claw implements AutoCloseable {
                 running.set(false);
             }
         }, ASYNC_EXECUTOR);
+    }
+
+    // ========== MVP9: Streaming API ==========
+
+    /**
+     * 流式执行 Agent Loop，返回 {@link Flow.Publisher} 逐步推送 {@link AgentEvent}。
+     *
+     * <p>事件类型见 {@code AgentEvent} sealed interface（LlmToken / ToolStart / IterationComplete /
+     * AgentComplete 等 17 种）。订阅者必须立即订阅以避免错过 hot publisher 的早期事件。</p>
+     *
+     * <p><b>线程安全</b>：与 {@code run/chat/resume} / async 共享并发守卫。
+     * 守卫在流式循环结束（含异常）时自动释放——订阅者无需手动 close。</p>
+     *
+     * @param userMessage 用户输入消息
+     * @return 事件发布者
+     */
+    @Experimental("MVP9 引入，订阅时序与并发守卫策略可能在 MVP10 调整")
+    public Flow.Publisher<AgentEvent> runStreaming(String userMessage) {
+        return executeStreaming(() -> context.addMessage(Message.UserMessage.of(userMessage)));
+    }
+
+    /**
+     * 流式多轮对话（在已有上下文基础上追加执行）。
+     *
+     * <p><b>线程安全</b>：见 {@link #runStreaming(String)}。</p>
+     *
+     * @param userMessage 用户输入消息
+     * @return 事件发布者
+     */
+    @Experimental
+    public Flow.Publisher<AgentEvent> chatStreaming(String userMessage) {
+        return executeStreaming(() -> {
+            if (sessionManager != null && context.sessionId() == null) {
+                sessionManager.createSession(context);
+            }
+            context.addMessage(Message.UserMessage.of(userMessage));
+        });
+    }
+
+    /**
+     * 流式恢复会话并继续运行。
+     *
+     * <p><b>线程安全</b>：见 {@link #runStreaming(String)}。</p>
+     *
+     * @param sessionId   要恢复的会话 ID
+     * @param userMessage 新的用户消息
+     * @return 事件发布者
+     * @throws IllegalStateException 若未启用会话管理（同步抛出，不会进入 publisher）
+     */
+    @Experimental
+    public Flow.Publisher<AgentEvent> resumeStreaming(String sessionId, String userMessage) {
+        if (sessionManager == null) {
+            throw new IllegalStateException("Session management not enabled. "
+                    + "Use ClawBuilder.sessionStore() to enable.");
+        }
+        return executeStreaming(() -> {
+            var snapshot = sessionManager.restoreSession(
+                    SessionId.of(sessionId), context.toolDefinitions());
+            context.replaceMessages(snapshot.messages());
+            context.setSessionId(sessionId);
+            context.addMessage(Message.UserMessage.of(userMessage));
+        });
+    }
+
+    private Flow.Publisher<AgentEvent> executeStreaming(Runnable contextSetup) {
+        if (!running.compareAndSet(false, true)) {
+            return errorPublisher(new IllegalStateException(
+                    "Another run/chat/resume is already in progress on this Claw instance."));
+        }
+        try {
+            contextSetup.run();
+        } catch (RuntimeException e) {
+            running.set(false);
+            throw e;
+        }
+        return agentLoop.runStreaming(() -> running.set(false));
+    }
+
+    /**
+     * 创建一个 lazy publisher：订阅者首次 request 时触发 {@code onError} 并完成。
+     * 不依赖 SubmissionPublisher 的 hot 语义（hot publisher 在订阅前 submit 会丢事件）。
+     */
+    private static Flow.Publisher<AgentEvent> errorPublisher(Throwable error) {
+        return subscriber -> subscriber.onSubscribe(new Flow.Subscription() {
+            private volatile boolean delivered = false;
+
+            @Override
+            public void request(long n) {
+                if (!delivered) {
+                    delivered = true;
+                    subscriber.onError(error);
+                }
+            }
+
+            @Override
+            public void cancel() {
+                delivered = true;
+            }
+        });
     }
 
     /**
