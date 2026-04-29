@@ -1,15 +1,12 @@
 package com.sprinkleclaw.spring.autoconfigure;
 
-import com.sprinkleclaw.bootstrap.Claw;
 import com.sprinkleclaw.gateway.acl.AccessControlList;
 import com.sprinkleclaw.gateway.auth.ApiKeyStore;
 import com.sprinkleclaw.gateway.filter.GatewayFilterChain;
 import com.sprinkleclaw.gateway.ratelimit.RateLimiter;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,18 +14,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SprinkleClawAutoConfigurationTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(GatewayAutoConfiguration.class))
+            .withConfiguration(AutoConfigurations.of(
+                    SprinkleClawAutoConfiguration.class,
+                    GatewayAutoConfiguration.class))
             .withUserConfiguration(PropertiesConfig.class);
 
     @Test
     void propertiesAreBoundUnderSprinkleClawPrefix() {
-        runner.withPropertyValues(
-                        "sprinkle-claw.llm.model=claude-sonnet-4-20250514",
-                        "sprinkle-claw.agent.max-iterations=50")
+        // 不配 instances 避免触发 BeanRegistrar 调真实 ClawBuilder.build()
+        // （test classpath 无 LLM provider）。多实例字段绑定见 SprinkleClawMultiInstanceTest。
+        runner.withPropertyValues("sprinkle-claw.agent.max-iterations=50")
                 .run(ctx -> {
                     SprinkleClawProperties props = ctx.getBean(SprinkleClawProperties.class);
-                    assertThat(props.getLlm().getModel()).isEqualTo("claude-sonnet-4-20250514");
                     assertThat(props.getAgent().getMaxIterations()).isEqualTo(50);
+                    assertThat(props.getLlm().getInstances()).isEmpty();
                 });
     }
 
@@ -106,9 +105,5 @@ class SprinkleClawAutoConfigurationTest {
     @Configuration(proxyBeanMethods = false)
     @org.springframework.boot.context.properties.EnableConfigurationProperties(SprinkleClawProperties.class)
     static class PropertiesConfig {
-        @Bean
-        Claw claw() {
-            return Mockito.mock(Claw.class);
-        }
     }
 }
