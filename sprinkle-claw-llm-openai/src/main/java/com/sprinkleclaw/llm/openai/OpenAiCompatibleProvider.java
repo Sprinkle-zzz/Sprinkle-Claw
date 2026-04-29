@@ -63,21 +63,31 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
         return "openai";
     }
 
+    private static final LlmCapabilities DEFAULT_CAPABILITIES = LlmCapabilities.builder()
+            .supportsReasoning(true)
+            .supportsStructuredOutput(true)
+            .contextWindowTokens(128_000)
+            .maxOutputTokens(16_384)
+            .supportsToolChoice(true)
+            .supportsStreaming(true)
+            .supportsToolUse(true)
+            .supportsPromptCache(true)
+            .supportsVision(true)
+            .supportsPdfInput(false)
+            .supportsAudioInput(false)
+            .build();
+
+    /**
+     * 返回能力声明：用户在 {@link LlmConfig#capabilities()} 中显式配置时优先返回，
+     * 否则使用保守默认值（128K 上下文 / 16K 输出 / 启用 prompt cache）。
+     *
+     * <p>这是 SDK 不维护 vendor capability registry 的原因——同一 baseUrl 下不同模型
+     * 上下文长度差异巨大（DeepSeek-V3 64K vs GLM-4 128K vs Qwen-Max 30K），让用户在
+     * 知道具体模型时显式覆盖，比 SDK 维护一张永远滞后的表更可靠。</p>
+     */
     @Override
     public LlmCapabilities capabilities() {
-        return LlmCapabilities.builder()
-                .supportsReasoning(true)
-                .supportsStructuredOutput(true)
-                .contextWindowTokens(128_000)
-                .maxOutputTokens(16_384)
-                .supportsToolChoice(true)
-                .supportsStreaming(true)
-                .supportsToolUse(true)
-                .supportsPromptCache(true)
-                .supportsVision(true)
-                .supportsPdfInput(false)
-                .supportsAudioInput(false)
-                .build();
+        return config.capabilities() != null ? config.capabilities() : DEFAULT_CAPABILITIES;
     }
 
     /**
@@ -198,6 +208,12 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
                     usageNode.path("prompt_tokens").asInt(0),
                     usageNode.path("completion_tokens").asInt(0),
                     usageNode.path("completion_tokens_details").path("reasoning_tokens").asInt(0));
+            // Usage 双兼容：OpenAI 标准 vs DeepSeek（参见 parseResponse 同名注释）
+            int cachedTokens = usageNode.path("prompt_tokens_details").path("cached_tokens").asInt(0);
+            if (cachedTokens == 0) {
+                cachedTokens = usageNode.path("prompt_cache_hit_tokens").asInt(0);
+            }
+            collector.setCachedTokens(cachedTokens);
         }
 
         // 提取 choices[0]
@@ -217,6 +233,18 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
         JsonNode delta = choice.get("delta");
         if (delta == null) {
             return;
+        }
+
+        // 推理内容增量（deepseek-v4-pro 用 reasoning_content；仅 returnThinking 启用时处理）
+        if (config.returnThinking()) {
+            JsonNode thinkingNode = delta.get(config.thinkingFieldName());
+            if (thinkingNode != null && !thinkingNode.isNull()) {
+                String thinkingDelta = thinkingNode.asText();
+                if (!thinkingDelta.isEmpty()) {
+                    callback.onThinkingToken(thinkingDelta);
+                    collector.appendThinking(thinkingDelta);
+                }
+            }
         }
 
         // 文本内容
@@ -306,6 +334,14 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
             // toolChoice 序列化：AUTO → "auto"；NONE → "none"；REQUIRED → "required"；
             // Forced(name) → {type: "function", function: {name: name}}
             serializeToolChoice(request.toolChoice(), root);
+        }
+
+        // 透传 vendor 私有字段（如 Qwen 的 enable_search、DeepSeek 的 response_format 等）
+        // 平铺合并到 root，对已有字段做覆盖（用户显式配置优先）
+        if (!config.customParameters().isEmpty()) {
+            for (Map.Entry<String, Object> entry : config.customParameters().entrySet()) {
+                root.set(entry.getKey(), objectMapper.valueToTree(entry.getValue()));
+            }
         }
 
         return root.toString();
@@ -403,6 +439,18 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
             List<ContentBlock> blocks = new ArrayList<>();
 
+            // 推理内容（仅 returnThinking 启用时解析；deepseek-v4-pro 用 reasoning_content 字段）
+            if (config.returnThinking()) {
+                String thinkingFieldName = config.thinkingFieldName();
+                JsonNode thinkingNode = messageNode.get(thinkingFieldName);
+                if (thinkingNode != null && !thinkingNode.isNull()) {
+                    String thinking = thinkingNode.asText();
+                    if (!thinking.isEmpty()) {
+                        blocks.add(new ContentBlock.ThinkingBlock(thinking));
+                    }
+                }
+            }
+
             if (messageNode.has("content") && !messageNode.get("content").isNull()) {
                 String content = messageNode.get("content").asText();
                 if (!content.isEmpty()) {
@@ -426,7 +474,12 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
             int inputTokens = root.at("/usage/prompt_tokens").asInt(0);
             int outputTokens = root.at("/usage/completion_tokens").asInt(0);
             int reasoningTokens = root.at("/usage/completion_tokens_details/reasoning_tokens").asInt(0);
+            // Usage 双兼容：OpenAI 标准用 prompt_tokens_details.cached_tokens；
+            // DeepSeek 用 prompt_cache_hit_tokens（顶层字段），谁有取谁，不冲突
             int cachedTokens = root.at("/usage/prompt_tokens_details/cached_tokens").asInt(0);
+            if (cachedTokens == 0) {
+                cachedTokens = root.at("/usage/prompt_cache_hit_tokens").asInt(0);
+            }
             Usage usage = new Usage(inputTokens, outputTokens, reasoningTokens, 0, cachedTokens);
 
             String modelId = root.has("model") ? root.get("model").asText() : "";
