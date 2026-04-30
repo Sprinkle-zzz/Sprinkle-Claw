@@ -42,7 +42,7 @@ public class OpenAiResponseCollector {
     }
 
     /**
-     * 追加推理内容增量（deepseek-v4-pro 的 {@code reasoning_content} 字段）。
+     * 追加推理内容增量（思考模型统一的 {@code reasoning_content} 字段）。
      */
     public void appendThinking(String content) {
         if (content != null) {

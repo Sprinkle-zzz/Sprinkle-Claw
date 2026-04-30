@@ -80,6 +80,10 @@ public final class LoomBuilder {
     private final List<LoopHook> hooks = new ArrayList<>();
     private final List<String> blockedCommands = new ArrayList<>();
     private final Map<String, String> customHeaders = new java.util.LinkedHashMap<>();
+    private final Map<String, Object> customParameters = new java.util.LinkedHashMap<>();
+    private Integer maxTokens;
+    private Double temperature;
+    private Duration requestTimeout;
     private LlmProvider llmProvider;
     private ToolPolicy toolPolicy;
     private ToolErrorHandler toolErrorHandler;
@@ -272,6 +276,56 @@ public final class LoomBuilder {
      */
     public LoomBuilder headers(Map<String, String> headers) {
         this.customHeaders.putAll(headers);
+        return this;
+    }
+
+    /**
+     * 透传单个 vendor 私有请求字段到 LLM API 请求体。
+     *
+     * <p>用于厂商私有特性，例如：</p>
+     * <ul>
+     *   <li>DeepSeek 关闭思考：{@code .customParameter("thinking", Map.of("type", "disabled"))}</li>
+     *   <li>Qwen 联网搜索：{@code .customParameter("enable_search", true)}</li>
+     * </ul>
+     *
+     * <p>值会被 Jackson 序列化为 JSON，与请求体平铺合并。</p>
+     */
+    public LoomBuilder customParameter(String name, Object value) {
+        this.customParameters.put(name, value);
+        return this;
+    }
+
+    /**
+     * 批量透传 vendor 私有请求字段。
+     */
+    public LoomBuilder customParameters(Map<String, Object> params) {
+        this.customParameters.putAll(params);
+        return this;
+    }
+
+    /**
+     * 设置每次请求的最大输出 token 数（未设置时由 Provider 默认值决定）。
+     */
+    public LoomBuilder maxTokens(int maxTokens) {
+        this.maxTokens = maxTokens;
+        return this;
+    }
+
+    /**
+     * 设置温度参数 0.0~2.0（未设置时由 Provider 默认值决定）。
+     */
+    public LoomBuilder temperature(double temperature) {
+        this.temperature = temperature;
+        return this;
+    }
+
+    /**
+     * 设置 LLM HTTP 请求超时（未设置时由 Provider 默认值决定）。
+     *
+     * <p>思考模型推理较慢，建议适当增大（如 5 分钟）。</p>
+     */
+    public LoomBuilder requestTimeout(Duration timeout) {
+        this.requestTimeout = timeout;
         return this;
     }
 
@@ -739,12 +793,22 @@ public final class LoomBuilder {
             resolvedApiKey = System.getenv("OPENAI_API_KEY");
         }
 
-        LlmConfig config = LlmConfig.builder()
+        LlmConfig.Builder configBuilder = LlmConfig.builder()
                 .apiKey(resolvedApiKey != null ? resolvedApiKey : "")
                 .model(model != null ? model : "claude-opus-4-7")
                 .baseUrl(baseUrl != null ? baseUrl : "")
                 .headers(customHeaders)
-                .build();
+                .customParameters(customParameters);
+        if (maxTokens != null) {
+            configBuilder.maxTokens(maxTokens);
+        }
+        if (temperature != null) {
+            configBuilder.temperature(temperature);
+        }
+        if (requestTimeout != null) {
+            configBuilder.timeout(requestTimeout);
+        }
+        LlmConfig config = configBuilder.build();
 
         String targetProvider = providerId != null ? providerId : detectProvider(config);
 

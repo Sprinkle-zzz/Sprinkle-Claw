@@ -5,6 +5,7 @@ import icu.sprinkle.loom.bootstrap.Loom;
 import icu.sprinkle.loom.core.AgentResult;
 
 import java.nio.file.Path;
+import java.util.Map;
 
 /**
  * 编码 Agent 示例：一键启用文件读写和 bash 工具。
@@ -22,6 +23,8 @@ public class CodingAgent {
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
                 .model("deepseek-v4-flash")
+                // 关闭 deepseek-v4-flash 的思考模式（vendor 私有字段，按 DeepSeek 文档透传）
+                .customParameter("thinking", Map.of("type", "disabled"))
                 .workingDirectory(Path.of("."))
                 .enableCodingTools()
                 .systemPrompt("你是一个 Java 编程助手，帮助用户读取和修改代码。")

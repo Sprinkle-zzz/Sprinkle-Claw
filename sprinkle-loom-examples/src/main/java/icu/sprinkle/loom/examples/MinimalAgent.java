@@ -26,6 +26,13 @@ public class MinimalAgent {
                 .build()) {
 
             AgentResult result = claw.run("你好！请用一句话介绍一下你自己。");
+
+            String thinking = result.thinking();
+            if (!thinking.isEmpty()) {
+                System.out.println("=== 思考过程 ===");
+                System.out.println(thinking);
+                System.out.println("=== 最终回复 ===");
+            }
             System.out.println(result.output());
         }
     }

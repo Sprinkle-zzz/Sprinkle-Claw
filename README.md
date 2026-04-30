@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Java-21+-blue?logo=openjdk&logoColor=white" alt="Java 21+"/>
     <img src="https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white" alt="Maven"/>
     <img src="https://img.shields.io/badge/License-MIT-green" alt="License"/>
-    <img src="https://img.shields.io/badge/Status-v0.10.0-blue" alt="Status"/>
+    <img src="https://img.shields.io/badge/Status-Mvp9-blue" alt="Status"/>
   </p>
   <p align="center">
     <a href="#这是什么">这是什么</a> •
@@ -293,8 +293,7 @@ mvn clean install -DskipTests
 | **MVP6** | 企业级网关 + Spring Boot Starter + MCP 迁移至官方 SDK | ✅ |
 | **MVP7** | Prompt Caching + 多模态内容（Image / Document / Audio）+ 多模态能力声明 | ✅ |
 | **MVP8** | SDK 核心清理：工具注册 opt-in + 异步 API + 双层记忆 + HttpClient 连接池统一 + 评估框架 + 示例项目 | ✅ |
-| **MVP9** | SDK 定位偏离修正：`Loom` 流式门面 + Spring Boot 多 model + 默认行为审计（删 transcript 写盘 / SystemPromptBuilder 修正 / `enableExtensions` 删除 / 目录默认值删除） | ⏳ 进行中 |
-| **MVP10** | 多 LLM 适配优化（`LlmConfig` 三层扩展点 + deepseek-v4-pro / Cache 字段双兼容）+ OpenTelemetry 桥接 | 规划中 |
+| **MVP9** | SDK 定位偏离修正：`Loom` 流式门面 + Spring Boot 多 model + 默认行为审计（删 transcript 写盘 / SystemPromptBuilder 修正 / `enableExtensions` 删除 / 目录默认值删除） | ✅ |
 
 ---
 

@@ -45,10 +45,26 @@ public class StreamingAgent {
                     subscription.request(Long.MAX_VALUE);
                 }
 
+                private boolean inThinking = false;
+
                 @Override
                 public void onNext(AgentEvent event) {
                     switch (event) {
-                        case AgentEvent.LlmToken t -> System.out.print(t.token());
+                        case AgentEvent.ThinkingToken t -> {
+                            if (!inThinking) {
+                                System.out.print("\n[思考] ");
+                                inThinking = true;
+                            }
+                            // ANSI 灰色显示思考流，与最终输出区分
+                            System.out.print("[90m" + t.token() + "[0m");
+                        }
+                        case AgentEvent.LlmToken t -> {
+                            if (inThinking) {
+                                System.out.print("\n[回复] ");
+                                inThinking = false;
+                            }
+                            System.out.print(t.token());
+                        }
                         case AgentEvent.ToolStart s ->
                                 System.out.printf("%n[工具调用: %s]%n", s.toolName());
                         case AgentEvent.ToolEnd e ->
