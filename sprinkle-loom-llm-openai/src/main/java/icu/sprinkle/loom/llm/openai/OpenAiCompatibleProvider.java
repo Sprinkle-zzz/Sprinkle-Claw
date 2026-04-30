@@ -235,15 +235,14 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
             return;
         }
 
-        // 推理内容增量（deepseek-v4-pro 用 reasoning_content；仅 returnThinking 启用时处理）
-        if (config.returnThinking()) {
-            JsonNode thinkingNode = delta.get(config.thinkingFieldName());
-            if (thinkingNode != null && !thinkingNode.isNull()) {
-                String thinkingDelta = thinkingNode.asText();
-                if (!thinkingDelta.isEmpty()) {
-                    callback.onThinkingToken(thinkingDelta);
-                    collector.appendThinking(thinkingDelta);
-                }
+        // 推理内容增量：DeepSeek/Qwen/Kimi/GLM/豆包 思考模型统一用 reasoning_content 字段。
+        // 始终解析以保证多轮回传协议合规（DeepSeek 工具调用场景强制要求）。
+        JsonNode thinkingNode = delta.get("reasoning_content");
+        if (thinkingNode != null && !thinkingNode.isNull()) {
+            String thinkingDelta = thinkingNode.asText();
+            if (!thinkingDelta.isEmpty()) {
+                callback.onThinkingToken(thinkingDelta);
+                collector.appendThinking(thinkingDelta);
             }
         }
 
@@ -379,20 +378,36 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
                 ObjectNode msgNode = messagesArray.addObject();
                 msgNode.put("role", "assistant");
 
+                // 思考内容回传：DeepSeek 思考模型在工具调用场景强制要求多轮回传 reasoning_content，
+                // 否则报 400。其他厂商（Qwen/Kimi/GLM）允许回传以保持思维连续性。
+                String thinkingContent = a.content().stream()
+                        .filter(ContentBlock.ThinkingBlock.class::isInstance)
+                        .map(b -> ((ContentBlock.ThinkingBlock) b).thinking())
+                        .reduce("", String::concat);
+                if (!thinkingContent.isEmpty()) {
+                    msgNode.put("reasoning_content", thinkingContent);
+                }
+
                 String textContent = a.content().stream()
                         .filter(ContentBlock.TextBlock.class::isInstance)
                         .map(b -> ((ContentBlock.TextBlock) b).text())
                         .reduce("", String::concat);
-                if (!textContent.isEmpty()) {
-                    msgNode.put("content", textContent);
-                } else {
-                    msgNode.putNull("content");
-                }
 
                 List<ContentBlock.ToolUseBlock> toolCalls = a.content().stream()
                         .filter(ContentBlock.ToolUseBlock.class::isInstance)
                         .map(ContentBlock.ToolUseBlock.class::cast)
                         .toList();
+
+                // OpenAI 协议：content 与 tool_calls 至少一个必须 set。
+                // 有 tool_calls 时 content 可为 null；否则即便文本为空也要发 ""，避免 400。
+                if (!textContent.isEmpty()) {
+                    msgNode.put("content", textContent);
+                } else if (toolCalls.isEmpty()) {
+                    msgNode.put("content", "");
+                } else {
+                    msgNode.putNull("content");
+                }
+
                 if (!toolCalls.isEmpty()) {
                     ArrayNode toolCallsArray = msgNode.putArray("tool_calls");
                     for (ContentBlock.ToolUseBlock tc : toolCalls) {
@@ -439,15 +454,13 @@ public final class OpenAiCompatibleProvider implements LlmProvider {
 
             List<ContentBlock> blocks = new ArrayList<>();
 
-            // 推理内容（仅 returnThinking 启用时解析；deepseek-v4-pro 用 reasoning_content 字段）
-            if (config.returnThinking()) {
-                String thinkingFieldName = config.thinkingFieldName();
-                JsonNode thinkingNode = messageNode.get(thinkingFieldName);
-                if (thinkingNode != null && !thinkingNode.isNull()) {
-                    String thinking = thinkingNode.asText();
-                    if (!thinking.isEmpty()) {
-                        blocks.add(new ContentBlock.ThinkingBlock(thinking));
-                    }
+            // 推理内容：DeepSeek/Qwen/Kimi/GLM/豆包 思考模型统一用 reasoning_content 字段。
+            // 始终解析以保证多轮回传协议合规（DeepSeek 工具调用场景强制要求）。
+            JsonNode thinkingNode = messageNode.get("reasoning_content");
+            if (thinkingNode != null && !thinkingNode.isNull()) {
+                String thinking = thinkingNode.asText();
+                if (!thinking.isEmpty()) {
+                    blocks.add(new ContentBlock.ThinkingBlock(thinking));
                 }
             }
 
