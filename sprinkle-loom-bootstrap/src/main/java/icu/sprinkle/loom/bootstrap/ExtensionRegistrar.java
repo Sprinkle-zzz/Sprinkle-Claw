@@ -79,7 +79,10 @@ final class ExtensionRegistrar {
         // Skill（文件扫描 + 编程式注册合并）
         if (config.enableSkill()) {
             var skillLoader = new icu.sprinkle.loom.ext.skill.SkillLoader();
-            skillLoader.scanDirectory(config.skillsDirectory());
+            // 仅编程式 Skill 场景允许 skillsDirectory 为 null（LoomBuilder 已校验至少一个来源存在）
+            if (config.skillsDirectory() != null) {
+                skillLoader.scanDirectory(config.skillsDirectory());
+            }
             // MVP8: 编程式注册的 Skill 合并到 registry
             if (programmaticSkills != null) {
                 for (LoomBuilder.SkillSpec spec : programmaticSkills) {
