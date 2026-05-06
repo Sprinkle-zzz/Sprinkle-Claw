@@ -2,9 +2,13 @@ package icu.sprinkle.loom.workflow.orchestration.sequential;
 
 import icu.sprinkle.loom.workflow.orchestration.*;
 import icu.sprinkle.loom.workflow.orchestration.checkpoint.InMemoryWorkflowCheckpointStore;
+import icu.sprinkle.loom.workflow.orchestration.checkpoint.WorkflowCheckpoint;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -155,5 +159,190 @@ class SequentialWorkflowTest {
 
         assertThat(result.output()).isEqualTo("HELLO!");
         assertThat(store.list(parent.workflowId() + "/sequential")).hasSize(2);
+    }
+
+    @Test
+    void resumeFrom_continuesFromNextStep() {
+        AtomicInteger firstStepCalls = new AtomicInteger();
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(
+                        WorkflowStep.of("first", (String s) -> {
+                            firstStepCalls.incrementAndGet();
+                            return s + "-first";
+                        }),
+                        WorkflowStep.of("second", (String s) -> s + "-second")
+                ),
+                ErrorPolicy.FAIL_FAST
+        );
+        var checkpoint = new WorkflowCheckpoint(
+                "workflow-1", "first", 0, "input-first",
+                Map.of(), List.of(StepResult.success("first", "input-first",
+                java.time.Duration.ofMillis(1), Instant.now())), Instant.now());
+
+        var result = workflow.resumeFrom(checkpoint);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("input-first-second");
+        assertThat(firstStepCalls).hasValue(0);
+        assertThat(result.stepResults()).hasSize(2);
+    }
+
+    @Test
+    void resumeFrom_whenCheckpointIsLastStep_returnsCheckpointOutput() {
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(WorkflowStep.of("only", (String s) -> s + "-done")),
+                ErrorPolicy.FAIL_FAST
+        );
+        var checkpoint = new WorkflowCheckpoint(
+                "workflow-1", "only", 0, "input-done",
+                Map.of(), List.of(StepResult.success("only", "input-done",
+                java.time.Duration.ofMillis(1), Instant.now())), Instant.now());
+
+        var result = workflow.resumeFrom(checkpoint);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("input-done");
+        assertThat(result.stepResults()).hasSize(1);
+    }
+
+    @Test
+    void resumeFrom_restoresContextAttributes() {
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(
+                        WorkflowStep.of("restore", (String s, WorkflowContext ctx) ->
+                                s + "-" + ctx.getAttribute("stage", String.class)),
+                        WorkflowStep.of("finish", (String s) -> s + "-done")
+                ),
+                ErrorPolicy.FAIL_FAST
+        );
+        var checkpoint = new WorkflowCheckpoint(
+                "workflow-1", "restore", 0, "input-parsed",
+                Map.of("stage", "parsed"),
+                List.of(StepResult.success("restore", "input-parsed",
+                        java.time.Duration.ofMillis(1), Instant.now())),
+                Instant.now());
+
+        var result = workflow.resumeFrom(checkpoint);
+
+        assertThat(result.output()).isEqualTo("input-parsed-done");
+    }
+
+    @Test
+    void resumeFrom_continuesSavingCheckpoints() {
+        var store = new InMemoryWorkflowCheckpointStore();
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(
+                        WorkflowStep.of("first", (String s) -> s + "-first"),
+                        WorkflowStep.of("second", (String s) -> s + "-second")
+                ),
+                ErrorPolicy.FAIL_FAST,
+                store
+        );
+        var checkpoint = new WorkflowCheckpoint(
+                "workflow-1", "first", 0, "input-first",
+                Map.of(), List.of(StepResult.success("first", "input-first",
+                java.time.Duration.ofMillis(1), Instant.now())), Instant.now());
+
+        workflow.resumeFrom(checkpoint);
+
+        assertThat(store.list("workflow-1")).hasSize(1);
+        assertThat(store.loadLatest("workflow-1"))
+                .hasValueSatisfying(saved -> {
+                    assertThat(saved.stepName()).isEqualTo("second");
+                    assertThat(saved.output()).isEqualTo("input-first-second");
+                });
+    }
+
+    @Test
+    void resumeFrom_stepNameMismatch_throwsIllegalArgument() {
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(WorkflowStep.of("expected", (String s) -> s)),
+                ErrorPolicy.FAIL_FAST
+        );
+        var checkpoint = new WorkflowCheckpoint(
+                "workflow-1", "actual", 0, "input",
+                Map.of(), List.of(), Instant.now());
+
+        assertThatThrownBy(() -> workflow.resumeFrom(checkpoint))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Checkpoint step mismatch");
+    }
+
+    @Test
+    void resumeFrom_stepIndexOutOfRange_throwsIllegalArgument() {
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(WorkflowStep.of("step", (String s) -> s)),
+                ErrorPolicy.FAIL_FAST
+        );
+        var checkpoint = new WorkflowCheckpoint(
+                "workflow-1", "step", 1, "input",
+                Map.of(), List.of(), Instant.now());
+
+        assertThatThrownBy(() -> workflow.resumeFrom(checkpoint))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("out of range");
+    }
+
+    @Test
+    void resumeLatest_loadsLatestCheckpointFromStore() {
+        var store = new InMemoryWorkflowCheckpointStore();
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(
+                        WorkflowStep.of("first", (String s) -> s + "-first"),
+                        WorkflowStep.of("second", (String s) -> s + "-second")
+                ),
+                ErrorPolicy.FAIL_FAST,
+                store
+        );
+        store.save(new WorkflowCheckpoint(
+                "workflow-1", "first", 0, "input-first",
+                Map.of(), List.of(StepResult.success("first", "input-first",
+                java.time.Duration.ofMillis(1), Instant.now())), Instant.now()));
+
+        var result = workflow.resumeLatest("workflow-1");
+
+        assertThat(result.output()).isEqualTo("input-first-second");
+    }
+
+    @Test
+    void resumeLatest_withoutStore_throwsIllegalState() {
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(WorkflowStep.of("step", (String s) -> s)),
+                ErrorPolicy.FAIL_FAST
+        );
+
+        assertThatThrownBy(() -> workflow.resumeLatest("workflow-1"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("checkpointStore is required");
+    }
+
+    @Test
+    void resumeLatest_withoutCheckpoint_throwsIllegalArgument() {
+        var workflow = new SequentialWorkflow<String, String>(
+                List.of(WorkflowStep.of("step", (String s) -> s)),
+                ErrorPolicy.FAIL_FAST,
+                new InMemoryWorkflowCheckpointStore()
+        );
+
+        assertThatThrownBy(() -> workflow.resumeLatest("workflow-1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("No checkpoint found");
+    }
+
+    @Test
+    void builder_buildSequential_returnsSequentialWorkflowForResumeApi() {
+        var store = new InMemoryWorkflowCheckpointStore();
+        SequentialWorkflow<String, String> workflow = WorkflowBuilder.<String>start()
+                .checkpointStore(store)
+                .then("first", value -> value + "-first")
+                .then("second", value -> value + "-second")
+                .buildSequential();
+
+        store.save(new WorkflowCheckpoint(
+                "workflow-1", "first", 0, "input-first",
+                Map.of(), List.of(StepResult.success("first", "input-first",
+                java.time.Duration.ofMillis(1), Instant.now())), Instant.now()));
+
+        assertThat(workflow.resumeLatest("workflow-1").output()).isEqualTo("input-first-second");
     }
 }

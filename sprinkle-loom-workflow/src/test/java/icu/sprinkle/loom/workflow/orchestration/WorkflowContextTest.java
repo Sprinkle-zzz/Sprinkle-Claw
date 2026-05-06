@@ -121,6 +121,28 @@ class WorkflowContextTest {
     }
 
     @Test
+    void restore_restoresAttributesAndStepResults() {
+        var stepResult = StepResult.success("step1", "out1",
+                java.time.Duration.ofMillis(10), java.time.Instant.now());
+
+        var ctx = WorkflowContext.restore(
+                "workflow-1",
+                java.util.Map.of("stage", "parsed"),
+                java.util.List.of(stepResult));
+
+        assertThat(ctx.workflowId()).isEqualTo("workflow-1");
+        assertThat(ctx.getAttribute("stage", String.class)).isEqualTo("parsed");
+        assertThat(ctx.stepResults()).containsExactly(stepResult);
+    }
+
+    @Test
+    void restore_doesNotInheritCancelledState() {
+        var ctx = WorkflowContext.restore("workflow-1", java.util.Map.of(), java.util.List.of());
+
+        assertThat(ctx.isCancelled()).isFalse();
+    }
+
+    @Test
     void createChild_withNullParent_createsRoot() {
         var ctx = WorkflowContext.createChild(null, "test");
         assertThat(ctx.workflowId()).isNotEmpty();

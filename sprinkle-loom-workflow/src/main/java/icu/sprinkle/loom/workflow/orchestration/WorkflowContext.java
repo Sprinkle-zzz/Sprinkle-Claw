@@ -40,6 +40,32 @@ public final class WorkflowContext {
     }
 
     /**
+     * 从 checkpoint 快照恢复 Workflow 上下文。
+     * <p>
+     * 恢复出的 context 使用传入的 workflowId、attributes 和 stepResults，但不会恢复
+     * parent 或取消状态。startTime 使用当前时间，表示本次 resume 的开始时间。
+     * attributes 是浅拷贝，属性值对象本身是否可变由调用方控制。
+     *
+     * @param workflowId Workflow 上下文 ID
+     * @param attributes 上下文属性快照
+     * @param stepResults 已完成步骤记录
+     * @return 恢复后的 Workflow 上下文
+     */
+    public static WorkflowContext restore(String workflowId,
+                                          Map<String, Object> attributes,
+                                          List<StepResult> stepResults) {
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        var context = new WorkflowContext(workflowId, null);
+        if (attributes != null) {
+            context.attributes.putAll(attributes);
+        }
+        if (stepResults != null) {
+            context.stepResults.addAll(stepResults);
+        }
+        return context;
+    }
+
+    /**
      * 创建子 context（嵌套 Workflow 使用）。
      */
     public static WorkflowContext createChild(WorkflowContext parent, String stepName) {

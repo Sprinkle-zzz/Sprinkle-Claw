@@ -79,6 +79,28 @@ public final class WorkflowBuilder {
         public Workflow<I, C> build(ErrorPolicy policy) {
             return new SequentialWorkflow<>(steps, policy, checkpointStore);
         }
+
+        /**
+         * 构建具体的 {@link SequentialWorkflow} 实例。
+         * <p>
+         * 当调用方需要使用 `resumeFrom` 或 `resumeLatest` 等顺序 Workflow 专有能力时，
+         * 应使用该方法；只需要通用执行能力时继续使用 {@link #build()}。
+         *
+         * @return 顺序 Workflow 实例
+         */
+        public SequentialWorkflow<I, C> buildSequential() {
+            return buildSequential(ErrorPolicy.FAIL_FAST);
+        }
+
+        /**
+         * 构建具体的 {@link SequentialWorkflow} 实例。
+         *
+         * @param policy 错误处理策略
+         * @return 顺序 Workflow 实例
+         */
+        public SequentialWorkflow<I, C> buildSequential(ErrorPolicy policy) {
+            return new SequentialWorkflow<>(steps, policy, checkpointStore);
+        }
     }
 
     // ── Parallel ────────────────────────────────────────────────────────

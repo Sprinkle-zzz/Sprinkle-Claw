@@ -48,10 +48,51 @@ public final class SequentialWorkflow<I, O> implements Workflow<I, O> {
     @SuppressWarnings("unchecked")
     public WorkflowResult<O> run(I input, WorkflowContext parentContext) {
         var ctx = WorkflowContext.createChild(parentContext, "sequential");
+        return executeFrom(ctx, input, 0);
+    }
+
+    /**
+     * 从指定 checkpoint 继续执行顺序 Workflow。
+     * <p>
+     * 恢复时会跳过 checkpoint 之前已经成功完成的 step，并以 checkpoint output
+     * 作为下一个 step 的输入。调用方需要确保 workflow 定义与 checkpoint 创建时一致，
+     * 否则 step 名称校验会失败。
+     *
+     * @param checkpoint 恢复起点 checkpoint
+     * @return Workflow 执行结果
+     */
+    public WorkflowResult<O> resumeFrom(WorkflowCheckpoint checkpoint) {
+        validateCheckpoint(checkpoint);
+        var ctx = WorkflowContext.restore(
+                checkpoint.workflowId(),
+                checkpoint.attributes(),
+                checkpoint.stepResults());
+        return executeFrom(ctx, checkpoint.output(), checkpoint.stepIndex() + 1);
+    }
+
+    /**
+     * 从 checkpoint store 中读取指定 workflow 的最新 checkpoint 并继续执行。
+     *
+     * @param workflowId Workflow 上下文 ID
+     * @return Workflow 执行结果
+     * @throws IllegalStateException 当前 Workflow 未配置 checkpoint store 时抛出
+     * @throws IllegalArgumentException 找不到 checkpoint 时抛出
+     */
+    public WorkflowResult<O> resumeLatest(String workflowId) {
+        if (checkpointStore == null) {
+            throw new IllegalStateException("checkpointStore is required for resumeLatest");
+        }
+        var checkpoint = checkpointStore.loadLatest(workflowId)
+                .orElseThrow(() -> new IllegalArgumentException("No checkpoint found for workflowId: " + workflowId));
+        return resumeFrom(checkpoint);
+    }
+
+    @SuppressWarnings("unchecked")
+    private WorkflowResult<O> executeFrom(WorkflowContext ctx, Object input, int startIndex) {
         var start = Instant.now();
         Object current = input;
 
-        for (int i = 0; i < steps.size(); i++) {
+        for (int i = startIndex; i < steps.size(); i++) {
             ctx.throwIfCancelled();
             var step = (WorkflowStep<Object, Object>) steps.get(i);
             var stepStart = Instant.now();
@@ -73,6 +114,22 @@ public final class SequentialWorkflow<I, O> implements Workflow<I, O> {
 
         O finalOutput = (O) current;
         return WorkflowResult.success(finalOutput, ctx.stepResults(), Duration.between(start, Instant.now()));
+    }
+
+    private void validateCheckpoint(WorkflowCheckpoint checkpoint) {
+        if (checkpoint == null) {
+            throw new IllegalArgumentException("checkpoint must not be null");
+        }
+        int stepIndex = checkpoint.stepIndex();
+        if (stepIndex < 0 || stepIndex >= steps.size()) {
+            throw new IllegalArgumentException("Checkpoint step index is out of range: " + stepIndex);
+        }
+        String expectedStepName = steps.get(stepIndex).name();
+        if (!expectedStepName.equals(checkpoint.stepName())) {
+            throw new IllegalArgumentException(
+                    "Checkpoint step mismatch at index " + stepIndex
+                            + ": expected " + expectedStepName + " but was " + checkpoint.stepName());
+        }
     }
 
     private void saveCheckpoint(WorkflowContext ctx, String stepName, int stepIndex, Object output) {
