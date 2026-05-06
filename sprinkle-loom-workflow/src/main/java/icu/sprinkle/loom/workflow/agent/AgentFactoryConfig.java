@@ -16,7 +16,8 @@ import java.util.List;
 public record AgentFactoryConfig(
         LlmProvider llmProvider,
         List<AgentTool> tools,
-        Duration timeout
+        Duration timeout,
+        DynamicSystemPromptProvider dynamicSystemPromptProvider
 ) {
     public static Builder defaults() {
         return new Builder();
@@ -26,6 +27,7 @@ public record AgentFactoryConfig(
         private LlmProvider llmProvider;
         private final List<AgentTool> tools = new ArrayList<>();
         private Duration timeout = Duration.ofSeconds(120);
+        private DynamicSystemPromptProvider dynamicSystemPromptProvider;
 
         private Builder() {}
 
@@ -49,11 +51,25 @@ public record AgentFactoryConfig(
             return this;
         }
 
+        /**
+         * 设置运行时 system prompt 提供者。
+         * <p>
+         * 该提供者只在注解没有声明 system prompt 时生效，适合应用层按租户、
+         * 会话或调用参数补充默认角色指令。
+         *
+         * @param dynamicSystemPromptProvider 运行时 system prompt 提供者，可为 {@code null}
+         * @return 当前构建器
+         */
+        public Builder dynamicSystemPromptProvider(DynamicSystemPromptProvider dynamicSystemPromptProvider) {
+            this.dynamicSystemPromptProvider = dynamicSystemPromptProvider;
+            return this;
+        }
+
         public AgentFactoryConfig build() {
             if (llmProvider == null) {
                 throw new IllegalStateException("llmProvider is required");
             }
-            return new AgentFactoryConfig(llmProvider, List.copyOf(tools), timeout);
+            return new AgentFactoryConfig(llmProvider, List.copyOf(tools), timeout, dynamicSystemPromptProvider);
         }
     }
 }

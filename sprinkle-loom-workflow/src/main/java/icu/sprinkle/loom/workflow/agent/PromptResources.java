@@ -32,14 +32,40 @@ final class PromptResources {
      * @throws IllegalArgumentException 配置了资源但无法找到或读取时抛出
      */
     static String resolve(Class<?> anchor, String inline, String resource) {
+        return resolve(anchor, inline != null ? new String[]{inline} : new String[0], "\n", resource);
+    }
+
+    /**
+     * 将多段内联 prompt 和可选 classpath 资源解析为最终 prompt。
+     * <p>
+     * 多段内联 prompt 会先按 delimiter 拼接，再与资源内容组合。delimiter 只作用于
+     * 注解内的多段文本，不影响内联 prompt 与资源 prompt 之间的空行分隔。
+     *
+     * @param anchor 读取资源时优先使用其类加载器的锚点类型
+     * @param inlineParts 注解中的多段内联 prompt，可为空
+     * @param delimiter 多段内联 prompt 的拼接分隔符；为 {@code null} 时按换行处理
+     * @param resource 注解中的 classpath 资源路径，可为空或 {@code null}
+     * @return 解析后的 prompt；当两种来源都不存在时返回空字符串
+     * @throws IllegalArgumentException 配置了资源但无法找到或读取时抛出
+     */
+    static String resolve(Class<?> anchor, String[] inlineParts, String delimiter, String resource) {
+        String inline = join(inlineParts, delimiter);
         if (resource == null || resource.isBlank()) {
-            return inline != null ? inline : "";
+            return inline;
         }
         String loaded = load(anchor, resource);
-        if (inline != null && !inline.isBlank()) {
+        if (!inline.isBlank()) {
             return inline + "\n\n" + loaded;
         }
         return loaded;
+    }
+
+    private static String join(String[] parts, String delimiter) {
+        if (parts == null || parts.length == 0) {
+            return "";
+        }
+        String actualDelimiter = delimiter != null ? delimiter : "\n";
+        return String.join(actualDelimiter, parts);
     }
 
     /**

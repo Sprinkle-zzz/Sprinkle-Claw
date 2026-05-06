@@ -53,7 +53,9 @@ public final class AgentFactory {
         Agent agentAnnotation = agentInterface.getAnnotation(Agent.class);
         Map<Method, AgentMethodMetadata> metadata = AgentMethodCache.get(agentInterface);
         String systemPrompt = PromptResources.resolve(agentInterface,
-                agentAnnotation.systemPrompt(), agentAnnotation.systemPromptResource());
+                agentAnnotation.systemPrompt(),
+                agentAnnotation.systemPromptDelimiter(),
+                agentAnnotation.systemPromptResource());
 
         @SuppressWarnings("unchecked")
         T proxy = (T) Proxy.newProxyInstance(

@@ -45,13 +45,15 @@ final class AgentMethodMetadata {
         // 解析 system prompt
         SystemMessage methodSystem = method.getAnnotation(SystemMessage.class);
         this.systemPromptTemplate = methodSystem != null
-                ? PromptResources.resolve(method.getDeclaringClass(), methodSystem.value(), methodSystem.fromResource())
+                ? PromptResources.resolve(method.getDeclaringClass(),
+                        methodSystem.value(), methodSystem.delimiter(), methodSystem.fromResource())
                 : "";
 
         // 解析 user message 模板
         UserMessage methodUser = method.getAnnotation(UserMessage.class);
         this.userMessageTemplate = methodUser != null
-                ? PromptResources.resolve(method.getDeclaringClass(), methodUser.value(), methodUser.fromResource())
+                ? PromptResources.resolve(method.getDeclaringClass(),
+                        methodUser.value(), methodUser.delimiter(), methodUser.fromResource())
                 : "";
 
         // 解析参数信息
@@ -149,6 +151,18 @@ final class AgentMethodMetadata {
      * 渲染 system prompt。
      */
     String renderSystemPrompt(String agentLevelPrompt) {
+        return renderSystemPrompt(agentLevelPrompt, null, null);
+    }
+
+    /**
+     * 渲染 system prompt。
+     * <p>
+     * 注解中显式声明的 system prompt 优先级高于运行时 provider。这样可以保证
+     * Agent 接口中的稳定指令不会被应用层默认配置意外覆盖。
+     */
+    String renderSystemPrompt(String agentLevelPrompt,
+                              DynamicSystemPromptProvider provider,
+                              Object[] args) {
         var sb = new StringBuilder();
         if (!agentLevelPrompt.isEmpty()) {
             sb.append(agentLevelPrompt);
@@ -159,6 +173,13 @@ final class AgentMethodMetadata {
             }
             sb.append(systemPromptTemplate);
         }
+        if (sb.isEmpty() && provider != null) {
+            String dynamicPrompt = provider.provide(new DynamicSystemPromptContext(
+                    method.getDeclaringClass(), method, argumentsByName(args)));
+            if (dynamicPrompt != null && !dynamicPrompt.isBlank()) {
+                sb.append(dynamicPrompt);
+            }
+        }
         // 非 tool 模式下，注入返回类型 schema
         if (returnSchema != null && resolveEffectiveStrategy(false) != StructuredOutputStrategy.GENERATE_RESPONSE_TOOL) {
             sb.append("\n\n# Output Format\n");
@@ -167,6 +188,17 @@ final class AgentMethodMetadata {
             sb.append("Respond ONLY with the JSON object, no other text.");
         }
         return sb.toString();
+    }
+
+    private Map<String, Object> argumentsByName(Object[] args) {
+        Map<String, Object> variables = new LinkedHashMap<>();
+        if (args == null) {
+            return variables;
+        }
+        for (var p : params) {
+            variables.put(p.name(), args[p.index()]);
+        }
+        return variables;
     }
 
     StructuredOutputStrategy resolveEffectiveStrategy(boolean supportsToolChoice) {

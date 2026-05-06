@@ -58,7 +58,10 @@ final class AgentInvocationHandler implements InvocationHandler {
         boolean supportsToolChoice = provider.capabilities().supportsToolChoice();
 
         String userMessage = meta.renderUserMessage(args);
-        String systemPrompt = meta.renderSystemPrompt(agentSystemPrompt);
+        String systemPrompt = meta.renderSystemPrompt(
+                agentSystemPrompt,
+                config.dynamicSystemPromptProvider(),
+                args);
 
         // 非结构化输出（返回 String）：直接调用 LLM
         if (!meta.isStructuredOutput()) {

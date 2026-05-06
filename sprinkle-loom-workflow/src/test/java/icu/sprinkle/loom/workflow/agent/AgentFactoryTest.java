@@ -42,6 +42,18 @@ class AgentFactoryTest {
         String translate(String text, String language);
     }
 
+    @Agent(systemPrompt = {"Line one", "Line two"}, systemPromptDelimiter = " | ")
+    interface MultiLinePromptAgent {
+        @SystemMessage(value = {"Method line one", "Method line two"}, delimiter = " / ")
+        @UserMessage(value = {"Question: {question}", "Style: {style}"}, delimiter = "\n---\n")
+        String answer(String question, String style);
+    }
+
+    @Agent
+    interface DynamicPromptAgent {
+        String greet(String name);
+    }
+
     @Agent
     interface UnusedParameterAgent {
         @UserMessage("Translate {text}")
@@ -165,6 +177,60 @@ class AgentFactoryTest {
 
         ValidTemplateAgent agent = AgentFactory.create(ValidTemplateAgent.class, mock);
         assertThat(agent.translate("hello", "Chinese")).isEqualTo("你好");
+    }
+
+    @Test
+    void create_multilinePrompt_joinsPromptPartsWithDelimiter() {
+        LlmProvider mock = request -> {
+            assertThat(request.systemPrompt())
+                    .contains("Line one | Line two")
+                    .contains("Method line one / Method line two");
+            assertThat(request.messages().getFirst())
+                    .isInstanceOfSatisfying(Message.UserMessage.class, message ->
+                            assertThat(message.content().getFirst())
+                                    .isEqualTo(new ContentBlock.TextBlock("Question: migration\n---\nStyle: concise")));
+            return new ChatResponse(
+                    List.of(new ContentBlock.TextBlock("ok")),
+                    StopReason.END_TURN, new Usage(10, 5), "test-model");
+        };
+
+        MultiLinePromptAgent agent = AgentFactory.create(MultiLinePromptAgent.class, mock);
+        assertThat(agent.answer("migration", "concise")).isEqualTo("ok");
+    }
+
+    @Test
+    void create_dynamicSystemPromptProvider_appliesWhenAnnotationsAreEmpty() {
+        LlmProvider mock = request -> {
+            assertThat(request.systemPrompt()).isEqualTo("Runtime prompt for Alice");
+            return new ChatResponse(
+                    List.of(new ContentBlock.TextBlock("Hello")),
+                    StopReason.END_TURN, new Usage(10, 5), "test-model");
+        };
+        AgentFactoryConfig config = AgentFactoryConfig.defaults()
+                .llmProvider(mock)
+                .dynamicSystemPromptProvider(context ->
+                        "Runtime prompt for " + context.arguments().get("name"))
+                .build();
+
+        DynamicPromptAgent agent = AgentFactory.create(DynamicPromptAgent.class, config);
+        assertThat(agent.greet("Alice")).isEqualTo("Hello");
+    }
+
+    @Test
+    void create_dynamicSystemPromptProvider_doesNotOverrideAnnotationPrompt() {
+        LlmProvider mock = request -> {
+            assertThat(request.systemPrompt()).isEqualTo("You are a helpful assistant.");
+            return new ChatResponse(
+                    List.of(new ContentBlock.TextBlock("Hello")),
+                    StopReason.END_TURN, new Usage(10, 5), "test-model");
+        };
+        AgentFactoryConfig config = AgentFactoryConfig.defaults()
+                .llmProvider(mock)
+                .dynamicSystemPromptProvider(context -> "Runtime prompt")
+                .build();
+
+        SimpleAgent agent = AgentFactory.create(SimpleAgent.class, config);
+        assertThat(agent.greet("Alice")).isEqualTo("Hello");
     }
 
     @Test

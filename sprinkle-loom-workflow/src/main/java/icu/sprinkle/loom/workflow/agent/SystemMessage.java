@@ -19,7 +19,12 @@ public @interface SystemMessage {
     /**
      * 方法级系统提示（覆盖 @Agent.systemPrompt）
      */
-    String value() default "";
+    String[] value() default {};
+
+    /**
+     * 多段方法级系统提示的拼接分隔符。
+     */
+    String delimiter() default "\n";
 
     /**
      * 方法级 system prompt 所在的 classpath 资源路径。

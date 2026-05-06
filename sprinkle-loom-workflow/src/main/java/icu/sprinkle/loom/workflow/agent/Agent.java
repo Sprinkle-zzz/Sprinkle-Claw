@@ -20,7 +20,12 @@ public @interface Agent {
     /**
      * 系统提示词，应用于接口所有方法（除非方法级 @SystemMessage 覆盖）
      */
-    String systemPrompt() default "";
+    String[] systemPrompt() default {};
+
+    /**
+     * 多段系统提示词的拼接分隔符。
+     */
+    String systemPromptDelimiter() default "\n";
 
     /**
      * 接口级 system prompt 所在的 classpath 资源路径。
