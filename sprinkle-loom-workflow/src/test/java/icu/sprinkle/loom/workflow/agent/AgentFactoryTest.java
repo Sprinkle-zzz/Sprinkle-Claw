@@ -36,7 +36,32 @@ class AgentFactoryTest {
         String summarize(String topic);
     }
 
-    record Result(String summary, int score) {}
+    @Agent
+    interface ValidTemplateAgent {
+        @UserMessage("Translate {text} to {language}")
+        String translate(String text, String language);
+    }
+
+    @Agent
+    interface UnusedParameterAgent {
+        @UserMessage("Translate {text}")
+        String unusedParameter(String text, String language);
+    }
+
+    @Agent
+    interface UnknownVariableAgent {
+        @UserMessage("Translate {text} to {locale}")
+        String unknownVariable(String text, String language);
+    }
+
+    @Agent
+    interface DuplicateVariableAgent {
+        @UserMessage("Compare {text} with {text}")
+        String duplicateVariable(String text);
+    }
+
+    record Result(String summary, int score) {
+    }
 
     interface NotAnnotated {
         String hello(String x);
@@ -124,6 +149,49 @@ class AgentFactoryTest {
 
         ResourcePromptAgent agent = AgentFactory.create(ResourcePromptAgent.class, mock);
         assertThat(agent.summarize("migration")).isEqualTo("ok");
+    }
+
+    @Test
+    void create_templatePrompt_rendersAllMethodParameters() {
+        LlmProvider mock = request -> {
+            assertThat(request.messages().getFirst())
+                    .isInstanceOfSatisfying(Message.UserMessage.class, message ->
+                            assertThat(message.content().getFirst())
+                                    .isEqualTo(new ContentBlock.TextBlock("Translate hello to Chinese")));
+            return new ChatResponse(
+                    List.of(new ContentBlock.TextBlock("你好")),
+                    StopReason.END_TURN, new Usage(10, 5), "test-model");
+        };
+
+        ValidTemplateAgent agent = AgentFactory.create(ValidTemplateAgent.class, mock);
+        assertThat(agent.translate("hello", "Chinese")).isEqualTo("你好");
+    }
+
+    @Test
+    void create_templatePrompt_throwsWhenParameterIsUnused() {
+        LlmProvider mock = request -> ChatResponse.empty(StopReason.END_TURN);
+
+        assertThatThrownBy(() -> AgentFactory.create(UnusedParameterAgent.class, mock))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not use prompt parameter(s): language");
+    }
+
+    @Test
+    void create_templatePrompt_throwsWhenVariableIsUnknown() {
+        LlmProvider mock = request -> ChatResponse.empty(StopReason.END_TURN);
+
+        assertThatThrownBy(() -> AgentFactory.create(UnknownVariableAgent.class, mock))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unknown prompt variable(s): locale");
+    }
+
+    @Test
+    void create_templatePrompt_throwsWhenVariableIsDuplicated() {
+        LlmProvider mock = request -> ChatResponse.empty(StopReason.END_TURN);
+
+        assertThatThrownBy(() -> AgentFactory.create(DuplicateVariableAgent.class, mock))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("duplicate prompt variable: text");
     }
 
     @Test

@@ -8,7 +8,9 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 对一个声明式 Agent 方法的元数据解析结果（反射解析一次，缓存复用）。
@@ -29,7 +31,8 @@ final class AgentMethodMetadata {
     private final int maxIterations;
     private final boolean hasTools;
 
-    record ParamInfo(String name, int index, boolean isUserMessage, String description) {}
+    record ParamInfo(String name, int index, boolean isUserMessage, String description) {
+    }
 
     AgentMethodMetadata(Method method, Agent agentAnnotation) {
         this.method = method;
@@ -53,6 +56,7 @@ final class AgentMethodMetadata {
 
         // 解析参数信息
         this.params = parseParams(method);
+        validatePromptTemplateParameters(method);
 
         // 生成返回类型 schema（非 String 时）
         if (returnType != String.class && returnType != void.class) {
@@ -99,19 +103,33 @@ final class AgentMethodMetadata {
             }
             // fallback：拼接所有参数
             for (int i = 0; i < args.length; i++) {
-                if (i > 0) sb.append("\n");
+                if (i > 0) {
+                    sb.append("\n");
+                }
                 sb.append(String.valueOf(args[i]));
             }
             return sb.toString();
         }
 
         // 模式 B/C：模板替换
-        String rendered = userMessageTemplate;
+        Map<String, Object> variables = new LinkedHashMap<>();
         for (var p : params) {
-            rendered = rendered.replace("{" + p.name() + "}", String.valueOf(args[p.index()]));
+            variables.put(p.name(), args[p.index()]);
         }
-        appendDescriptions(new StringBuilder(rendered), args);
-        return rendered;
+        String rendered = PromptTemplate.render(userMessageTemplate, variables, method.toGenericString());
+        StringBuilder sb = new StringBuilder(rendered);
+        appendDescriptions(sb, args);
+        return sb.toString();
+    }
+
+    private void validatePromptTemplateParameters(Method method) {
+        if (userMessageTemplate.isEmpty()) {
+            return;
+        }
+        List<String> parameterNames = params.stream()
+                .map(ParamInfo::name)
+                .toList();
+        PromptTemplate.validateParameters(userMessageTemplate, parameterNames, method.toGenericString());
     }
 
     private void appendDescriptions(StringBuilder sb, Object[] args) {
@@ -136,7 +154,9 @@ final class AgentMethodMetadata {
             sb.append(agentLevelPrompt);
         }
         if (!systemPromptTemplate.isEmpty()) {
-            if (!sb.isEmpty()) sb.append("\n\n");
+            if (!sb.isEmpty()) {
+                sb.append("\n\n");
+            }
             sb.append(systemPromptTemplate);
         }
         // 非 tool 模式下，注入返回类型 schema
@@ -158,11 +178,31 @@ final class AgentMethodMetadata {
         return strategy;
     }
 
-    Method method() { return method; }
-    Type returnType() { return returnType; }
-    JsonNode returnSchema() { return returnSchema; }
-    boolean isStructuredOutput() { return returnSchema != null; }
-    int maxCorrectionRetries() { return maxCorrectionRetries; }
-    int maxIterations() { return maxIterations; }
-    StructuredOutputStrategy strategy() { return strategy; }
+    Method method() {
+        return method;
+    }
+
+    Type returnType() {
+        return returnType;
+    }
+
+    JsonNode returnSchema() {
+        return returnSchema;
+    }
+
+    boolean isStructuredOutput() {
+        return returnSchema != null;
+    }
+
+    int maxCorrectionRetries() {
+        return maxCorrectionRetries;
+    }
+
+    int maxIterations() {
+        return maxIterations;
+    }
+
+    StructuredOutputStrategy strategy() {
+        return strategy;
+    }
 }
