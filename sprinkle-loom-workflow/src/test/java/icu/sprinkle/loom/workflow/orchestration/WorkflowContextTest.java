@@ -22,6 +22,51 @@ class WorkflowContextTest {
     }
 
     @Test
+    void updateAttribute_withOverwriteReducer_replacesValue() {
+        var ctx = WorkflowContext.create();
+        ctx.setAttribute("status", "draft");
+
+        String updated = ctx.updateAttribute("status", "done", StateReducer.overwrite());
+
+        assertThat(updated).isEqualTo("done");
+        assertThat(ctx.getAttribute("status", String.class)).isEqualTo("done");
+    }
+
+    @Test
+    void updateAttribute_withAppendListReducer_appendsValues() {
+        var ctx = WorkflowContext.create();
+        ctx.updateAttribute("events", java.util.List.of("created"), StateReducer.<String>appendList());
+
+        ctx.updateAttribute("events", java.util.List.of("validated", "finished"), StateReducer.<String>appendList());
+
+        Object events = ctx.getAttribute("events", Object.class);
+        assertThat(events)
+                .isInstanceOf(java.util.List.class)
+                .asList()
+                .containsExactly("created", "validated", "finished");
+    }
+
+    @Test
+    void applyStateUpdate_mergesMultipleFields() {
+        var ctx = WorkflowContext.create();
+        ctx.setAttribute("metadata", java.util.Map.of("a", 1));
+        var update = WorkflowStateUpdate.builder()
+                .put("status", "ready")
+                .put("metadata", java.util.Map.of("b", 2), StateReducer.<String, Integer>mergeMap())
+                .build();
+
+        ctx.applyStateUpdate(update);
+
+        assertThat(ctx.getAttribute("status", String.class)).isEqualTo("ready");
+        Object metadata = ctx.getAttribute("metadata", Object.class);
+        assertThat(metadata)
+                .isInstanceOf(java.util.Map.class)
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Integer.class))
+                .containsEntry("a", 1)
+                .containsEntry("b", 2);
+    }
+
+    @Test
     void cancel_marksCancelled() {
         var ctx = WorkflowContext.create();
         assertThat(ctx.isCancelled()).isFalse();
