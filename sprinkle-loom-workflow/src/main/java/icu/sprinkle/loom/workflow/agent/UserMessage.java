@@ -21,6 +21,13 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface UserMessage {
 
-    /** 可选：prompt 模板，使用 {paramName} 占位 */
+    /**
+     * 可选：prompt 模板，使用 {paramName} 占位
+     */
     String value() default "";
+
+    /**
+     * 方法级 user prompt 模板所在的 classpath 资源路径。
+     */
+    String fromResource() default "";
 }

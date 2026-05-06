@@ -16,6 +16,13 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface SystemMessage {
 
-    /** 方法级系统提示（覆盖 @Agent.systemPrompt） */
-    String value();
+    /**
+     * 方法级系统提示（覆盖 @Agent.systemPrompt）
+     */
+    String value() default "";
+
+    /**
+     * 方法级 system prompt 所在的 classpath 资源路径。
+     */
+    String fromResource() default "";
 }

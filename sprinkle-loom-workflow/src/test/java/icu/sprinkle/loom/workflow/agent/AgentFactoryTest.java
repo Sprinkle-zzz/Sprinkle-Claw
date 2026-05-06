@@ -6,6 +6,7 @@ import icu.sprinkle.loom.protocol.llm.ChatResponse;
 import icu.sprinkle.loom.protocol.llm.StopReason;
 import icu.sprinkle.loom.protocol.llm.Usage;
 import icu.sprinkle.loom.protocol.message.ContentBlock;
+import icu.sprinkle.loom.protocol.message.Message;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -26,6 +27,13 @@ class AgentFactoryTest {
     @Agent(systemPrompt = "Return JSON.")
     interface StructuredAgent {
         Result analyze(String text);
+    }
+
+    @Agent(systemPromptResource = "prompts/agent-system.txt")
+    interface ResourcePromptAgent {
+        @SystemMessage(fromResource = "prompts/method-system.txt")
+        @UserMessage(fromResource = "prompts/user-template.txt")
+        String summarize(String topic);
     }
 
     record Result(String summary, int score) {}
@@ -96,6 +104,26 @@ class AgentFactoryTest {
         assertThat(agent.toString()).contains("SimpleAgent");
         assertThat(agent.hashCode()).isNotZero();
         assertThat(agent.equals(agent)).isTrue();
+    }
+
+    @Test
+    void create_resourcePrompts_loadsSystemAndUserTemplatesFromClasspath() {
+        LlmProvider mock = request -> {
+            assertThat(request.systemPrompt())
+                    .contains("You are loaded from an agent resource.")
+                    .contains("Use the method resource instructions.");
+            assertThat(request.messages()).hasSize(1);
+            assertThat(request.messages().getFirst())
+                    .isInstanceOfSatisfying(Message.UserMessage.class, message ->
+                            assertThat(message.content().getFirst())
+                                    .isEqualTo(new ContentBlock.TextBlock("Summarize this topic: migration")));
+            return new ChatResponse(
+                    List.of(new ContentBlock.TextBlock("ok")),
+                    StopReason.END_TURN, new Usage(10, 5), "test-model");
+        };
+
+        ResourcePromptAgent agent = AgentFactory.create(ResourcePromptAgent.class, mock);
+        assertThat(agent.summarize("migration")).isEqualTo("ok");
     }
 
     @Test

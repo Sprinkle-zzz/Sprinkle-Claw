@@ -17,18 +17,33 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Agent {
 
-    /** 系统提示词，应用于接口所有方法（除非方法级 @SystemMessage 覆盖） */
+    /**
+     * 系统提示词，应用于接口所有方法（除非方法级 @SystemMessage 覆盖）
+     */
     String systemPrompt() default "";
 
-    /** 默认模型（可被 AgentFactory.create 参数覆盖） */
+    /**
+     * 接口级 system prompt 所在的 classpath 资源路径。
+     */
+    String systemPromptResource() default "";
+
+    /**
+     * 默认模型（可被 AgentFactory.create 参数覆盖）
+     */
     String model() default "";
 
-    /** 默认最大迭代次数（有工具的方法走完整 Loop 时使用） */
+    /**
+     * 默认最大迭代次数（有工具的方法走完整 Loop 时使用）
+     */
     int maxIterations() default 5;
 
-    /** 结构化输出策略 */
+    /**
+     * 结构化输出策略
+     */
     StructuredOutputStrategy outputStrategy() default StructuredOutputStrategy.AUTO;
 
-    /** 自纠正最大重试次数 */
+    /**
+     * 自纠正最大重试次数
+     */
     int maxCorrectionRetries() default 2;
 }

@@ -1,0 +1,1 @@
+You are loaded from an agent resource.

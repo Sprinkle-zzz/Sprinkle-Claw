@@ -25,7 +25,8 @@ import java.util.Map;
  */
 public final class AgentFactory {
 
-    private AgentFactory() {}
+    private AgentFactory() {
+    }
 
     /**
      * 基础入口：使用 {@link LlmProvider} 创建代理实例。
@@ -51,12 +52,14 @@ public final class AgentFactory {
         validateInterface(agentInterface);
         Agent agentAnnotation = agentInterface.getAnnotation(Agent.class);
         Map<Method, AgentMethodMetadata> metadata = AgentMethodCache.get(agentInterface);
+        String systemPrompt = PromptResources.resolve(agentInterface,
+                agentAnnotation.systemPrompt(), agentAnnotation.systemPromptResource());
 
         @SuppressWarnings("unchecked")
         T proxy = (T) Proxy.newProxyInstance(
                 agentInterface.getClassLoader(),
                 new Class<?>[]{agentInterface},
-                new AgentInvocationHandler(metadata, config, agentAnnotation.systemPrompt())
+                new AgentInvocationHandler(metadata, config, systemPrompt)
         );
         return proxy;
     }
@@ -69,7 +72,9 @@ public final class AgentFactory {
             throw new IllegalArgumentException(cls.getName() + " is missing @Agent annotation");
         }
         for (Method m : cls.getDeclaredMethods()) {
-            if (m.isDefault()) continue;
+            if (m.isDefault()) {
+                continue;
+            }
             AgentMethodValidator.validate(m);
         }
     }

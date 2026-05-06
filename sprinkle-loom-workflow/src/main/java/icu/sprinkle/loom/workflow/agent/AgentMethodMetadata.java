@@ -41,11 +41,15 @@ final class AgentMethodMetadata {
 
         // 解析 system prompt
         SystemMessage methodSystem = method.getAnnotation(SystemMessage.class);
-        this.systemPromptTemplate = methodSystem != null ? methodSystem.value() : "";
+        this.systemPromptTemplate = methodSystem != null
+                ? PromptResources.resolve(method.getDeclaringClass(), methodSystem.value(), methodSystem.fromResource())
+                : "";
 
         // 解析 user message 模板
         UserMessage methodUser = method.getAnnotation(UserMessage.class);
-        this.userMessageTemplate = methodUser != null ? methodUser.value() : "";
+        this.userMessageTemplate = methodUser != null
+                ? PromptResources.resolve(method.getDeclaringClass(), methodUser.value(), methodUser.fromResource())
+                : "";
 
         // 解析参数信息
         this.params = parseParams(method);
