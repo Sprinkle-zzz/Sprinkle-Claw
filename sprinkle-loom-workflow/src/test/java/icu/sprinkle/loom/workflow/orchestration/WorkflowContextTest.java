@@ -22,6 +22,19 @@ class WorkflowContextTest {
     }
 
     @Test
+    void attributesSnapshot_returnsImmutableAttributeCopy() {
+        var ctx = WorkflowContext.create();
+        ctx.setAttribute("key", "value");
+
+        var snapshot = ctx.attributesSnapshot();
+        ctx.setAttribute("key", "changed");
+
+        assertThat(snapshot).containsEntry("key", "value");
+        assertThatThrownBy(() -> snapshot.put("other", "value"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void updateAttribute_withOverwriteReducer_replacesValue() {
         var ctx = WorkflowContext.create();
         ctx.setAttribute("status", "draft");
@@ -40,10 +53,8 @@ class WorkflowContextTest {
         ctx.updateAttribute("events", java.util.List.of("validated", "finished"), StateReducer.<String>appendList());
 
         Object events = ctx.getAttribute("events", Object.class);
-        assertThat(events)
-                .isInstanceOf(java.util.List.class)
-                .asList()
-                .containsExactly("created", "validated", "finished");
+        assertThat(events).isInstanceOf(java.util.List.class);
+        assertThat(events).isEqualTo(java.util.List.of("created", "validated", "finished"));
     }
 
     @Test

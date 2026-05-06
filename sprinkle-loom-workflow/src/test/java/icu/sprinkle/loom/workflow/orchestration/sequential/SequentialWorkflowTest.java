@@ -1,6 +1,7 @@
 package icu.sprinkle.loom.workflow.orchestration.sequential;
 
 import icu.sprinkle.loom.workflow.orchestration.*;
+import icu.sprinkle.loom.workflow.orchestration.checkpoint.InMemoryWorkflowCheckpointStore;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -110,5 +111,49 @@ class SequentialWorkflowTest {
         );
         var result = wf.run(5);
         assertThat(result.output()).isEqualTo(10);
+    }
+
+    @Test
+    void run_withCheckpointStore_savesCheckpointAfterEachSuccessfulStep() {
+        var store = new InMemoryWorkflowCheckpointStore();
+        var parent = WorkflowContext.create();
+        var wf = new SequentialWorkflow<String, String>(
+                List.of(
+                        WorkflowStep.of("write", (String s, WorkflowContext ctx) -> {
+                            ctx.setAttribute("stage", "written");
+                            return s + "-1";
+                        }),
+                        WorkflowStep.of("finish", (String s) -> s + "-2")
+                ),
+                ErrorPolicy.FAIL_FAST,
+                store
+        );
+
+        var result = wf.run("input", parent);
+        var checkpoints = store.list(parent.workflowId() + "/sequential");
+
+        assertThat(result.success()).isTrue();
+        assertThat(checkpoints).hasSize(2);
+        assertThat(checkpoints.get(0).stepName()).isEqualTo("write");
+        assertThat(checkpoints.get(0).attributes()).containsEntry("stage", "written");
+        assertThat(checkpoints.get(1).output()).isEqualTo("input-1-2");
+        assertThat(store.loadLatest(parent.workflowId() + "/sequential"))
+                .hasValueSatisfying(checkpoint -> assertThat(checkpoint.stepName()).isEqualTo("finish"));
+    }
+
+    @Test
+    void builder_withCheckpointStore_passesStoreToSequentialWorkflow() {
+        var store = new InMemoryWorkflowCheckpointStore();
+        var parent = WorkflowContext.create();
+        var workflow = WorkflowBuilder.<String>start()
+                .checkpointStore(store)
+                .then("upper", String::toUpperCase)
+                .then("suffix", value -> value + "!")
+                .build();
+
+        var result = workflow.run("hello", parent);
+
+        assertThat(result.output()).isEqualTo("HELLO!");
+        assertThat(store.list(parent.workflowId() + "/sequential")).hasSize(2);
     }
 }

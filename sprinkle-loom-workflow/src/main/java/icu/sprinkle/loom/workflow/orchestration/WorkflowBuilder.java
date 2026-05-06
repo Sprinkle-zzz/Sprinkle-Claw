@@ -4,6 +4,7 @@ import icu.sprinkle.loom.workflow.orchestration.conditional.ConditionalWorkflow;
 import icu.sprinkle.loom.workflow.orchestration.dag.DagEdge;
 import icu.sprinkle.loom.workflow.orchestration.dag.DagNode;
 import icu.sprinkle.loom.workflow.orchestration.dag.DagWorkflow;
+import icu.sprinkle.loom.workflow.orchestration.checkpoint.WorkflowCheckpointStore;
 import icu.sprinkle.loom.workflow.orchestration.loop.LoopWorkflow;
 import icu.sprinkle.loom.workflow.orchestration.parallel.MergeStrategy;
 import icu.sprinkle.loom.workflow.orchestration.parallel.ParallelWorkflow;
@@ -39,32 +40,44 @@ public final class WorkflowBuilder {
      * 开始构建 Sequential Workflow。
      */
     public static <I> SequentialBuilder<I, I> start() {
-        return new SequentialBuilder<>(new ArrayList<>());
+        return new SequentialBuilder<>(new ArrayList<>(), null);
     }
 
     public static final class SequentialBuilder<I, C> {
         private final List<WorkflowStep<?, ?>> steps;
+        private final WorkflowCheckpointStore checkpointStore;
 
-        SequentialBuilder(List<WorkflowStep<?, ?>> steps) {
+        SequentialBuilder(List<WorkflowStep<?, ?>> steps, WorkflowCheckpointStore checkpointStore) {
             this.steps = steps;
+            this.checkpointStore = checkpointStore;
         }
 
         public <N> SequentialBuilder<I, N> then(WorkflowStep<C, N> next) {
             var copy = new ArrayList<>(steps);
             copy.add(next);
-            return new SequentialBuilder<>(copy);
+            return new SequentialBuilder<>(copy, checkpointStore);
         }
 
         public <N> SequentialBuilder<I, N> then(String name, Function<C, N> fn) {
             return then(WorkflowStep.of(name, fn));
         }
 
+        /**
+         * 为 Sequential Workflow 配置 checkpoint 存储。
+         *
+         * @param checkpointStore checkpoint 存储；为 {@code null} 时关闭 checkpoint
+         * @return 新的构建器
+         */
+        public SequentialBuilder<I, C> checkpointStore(WorkflowCheckpointStore checkpointStore) {
+            return new SequentialBuilder<>(steps, checkpointStore);
+        }
+
         public Workflow<I, C> build() {
-            return new SequentialWorkflow<>(steps, ErrorPolicy.FAIL_FAST);
+            return new SequentialWorkflow<>(steps, ErrorPolicy.FAIL_FAST, checkpointStore);
         }
 
         public Workflow<I, C> build(ErrorPolicy policy) {
-            return new SequentialWorkflow<>(steps, policy);
+            return new SequentialWorkflow<>(steps, policy, checkpointStore);
         }
     }
 

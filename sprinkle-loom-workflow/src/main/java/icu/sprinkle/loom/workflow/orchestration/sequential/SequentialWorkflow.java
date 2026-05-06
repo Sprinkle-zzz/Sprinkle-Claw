@@ -1,6 +1,8 @@
 package icu.sprinkle.loom.workflow.orchestration.sequential;
 
 import icu.sprinkle.loom.workflow.orchestration.*;
+import icu.sprinkle.loom.workflow.orchestration.checkpoint.WorkflowCheckpoint;
+import icu.sprinkle.loom.workflow.orchestration.checkpoint.WorkflowCheckpointStore;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -16,10 +18,25 @@ public final class SequentialWorkflow<I, O> implements Workflow<I, O> {
 
     private final List<WorkflowStep<?, ?>> steps;
     private final ErrorPolicy errorPolicy;
+    private final WorkflowCheckpointStore checkpointStore;
 
     public SequentialWorkflow(List<WorkflowStep<?, ?>> steps, ErrorPolicy errorPolicy) {
+        this(steps, errorPolicy, null);
+    }
+
+    /**
+     * 创建顺序 Workflow。
+     *
+     * @param steps 执行步骤列表
+     * @param errorPolicy 错误处理策略
+     * @param checkpointStore checkpoint 存储；为 {@code null} 时不保存 checkpoint
+     */
+    public SequentialWorkflow(List<WorkflowStep<?, ?>> steps,
+                              ErrorPolicy errorPolicy,
+                              WorkflowCheckpointStore checkpointStore) {
         this.steps = List.copyOf(steps);
         this.errorPolicy = errorPolicy;
+        this.checkpointStore = checkpointStore;
     }
 
     @Override
@@ -42,6 +59,7 @@ public final class SequentialWorkflow<I, O> implements Workflow<I, O> {
                 current = step.execute(current, ctx);
                 ctx.recordStep(StepResult.success(
                         step.name(), current, Duration.between(stepStart, Instant.now()), stepStart));
+                saveCheckpoint(ctx, step.name(), i, current);
             } catch (Exception e) {
                 ctx.recordStep(StepResult.failure(
                         step.name(), e, Duration.between(stepStart, Instant.now()), stepStart));
@@ -55,6 +73,21 @@ public final class SequentialWorkflow<I, O> implements Workflow<I, O> {
 
         O finalOutput = (O) current;
         return WorkflowResult.success(finalOutput, ctx.stepResults(), Duration.between(start, Instant.now()));
+    }
+
+    private void saveCheckpoint(WorkflowContext ctx, String stepName, int stepIndex, Object output) {
+        if (checkpointStore == null) {
+            return;
+        }
+        // checkpoint 保存发生在 stepResult 记录之后，确保快照能反映已完成步骤。
+        checkpointStore.save(new WorkflowCheckpoint(
+                ctx.workflowId(),
+                stepName,
+                stepIndex,
+                output,
+                ctx.attributesSnapshot(),
+                ctx.stepResults(),
+                Instant.now()));
     }
 
     @Override

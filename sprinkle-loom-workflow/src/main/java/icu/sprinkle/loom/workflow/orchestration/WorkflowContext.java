@@ -2,6 +2,7 @@ package icu.sprinkle.loom.workflow.orchestration;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,6 +59,17 @@ public final class WorkflowContext {
 
     public void setAttribute(String key, Object value) {
         attributes.put(key, value);
+    }
+
+    /**
+     * 返回当前上下文属性快照。
+     * <p>
+     * 返回值是浅拷贝，只保证属性 Map 本身不可变；属性值对象是否可变由调用方控制。
+     *
+     * @return 上下文属性快照
+     */
+    public Map<String, Object> attributesSnapshot() {
+        return Map.copyOf(attributes);
     }
 
     /**
