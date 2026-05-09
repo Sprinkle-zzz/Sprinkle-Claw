@@ -115,21 +115,28 @@ sprinkle-loom:
 
 ```java
 import icu.sprinkle.loom.core.loop.event.AgentEvent;
-import java.util.concurrent.Flow;
+import icu.sprinkle.loom.spring.autoconfigure.LoomFluxAdapters;
+import icu.sprinkle.loom.stream.FlowStreams;
+import reactor.core.publisher.Flux;
 
-loom.runStreaming("写一首关于秋天的诗").subscribe(new Flow.Subscriber<>() {
-    public void onSubscribe(Flow.Subscription s) { s.request(Long.MAX_VALUE); }
-    public void onNext(AgentEvent event) {
-        if (event instanceof AgentEvent.LlmToken t) {
-            System.out.print(t.token());            // 逐 token 渲染
-        }
-    }
-    public void onError(Throwable t) { t.printStackTrace(); }
-    public void onComplete() { System.out.println("\n[完成]"); }
-});
+FlowStreams.subscribe(loom.runStreaming("写一首关于秋天的诗"))
+        .onNext(event -> {
+            if (event instanceof AgentEvent.LlmToken t) {
+                System.out.print(t.token());        // 逐 token 渲染
+            }
+        })
+        .onError(Throwable::printStackTrace)
+        .onComplete(() -> System.out.println("\n[完成]"))
+        .start();
 ```
 
-`AgentEvent` 是 sealed interface（17 种事件：`LlmToken` / `ThinkingToken` / `ToolStart` / `ToolEnd` / `IterationComplete` / `AgentComplete` / `AgentError` 等）。结合 `SseEventAdapter` 可一键转 SSE 字节流推给前端，支持 `Last-Event-ID` 断线续传。
+Spring WebFlux 场景可直接使用 starter 提供的 Reactor 适配器：
+
+```java
+Flux<AgentEvent> events = LoomFluxAdapters.runFlux(loom, "写一首关于秋天的诗");
+```
+
+`AgentEvent` 是 sealed interface（17 种事件：`LlmToken` / `ThinkingToken` / `ToolStart` / `ToolEnd` / `IterationComplete` / `AgentComplete` / `AgentError` 等）。应用端面向 `Flow.Publisher<AgentEvent>` 或 `Flux<AgentEvent>` 即可，不需要感知底层是阻塞 HTTP、异步 HTTP、SSE 还是 WebSocket。底层 LLM Provider 也提供 `LlmProvider.streamChatPublisher(ChatRequest)`，用于只需要模型 token / thinking / tool input chunk 的低层场景；业务前端通常优先使用 Agent 层事件流。
 
 ### A.5 长期记忆 / 多轮会话
 

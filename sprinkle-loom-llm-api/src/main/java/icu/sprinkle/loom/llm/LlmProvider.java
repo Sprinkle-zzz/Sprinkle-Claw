@@ -5,6 +5,7 @@ import icu.sprinkle.loom.protocol.llm.ChatRequest;
 import icu.sprinkle.loom.protocol.llm.ChatResponse;
 
 import java.util.List;
+import java.util.concurrent.Flow;
 
 /**
  * LLM 提供者 SPI 接口。
@@ -86,5 +87,18 @@ public interface LlmProvider {
             callback.onToken(text);
         }
         return response;
+    }
+
+    /**
+     * 以 Java 标准 {@link Flow.Publisher} 形式流式调用 LLM。
+     * <p>默认实现为冷发布者：订阅者首次 {@code request(n)} 后，
+     * 在虚拟线程中调用阻塞式 {@link #streamChat(ChatRequest, StreamCallback)}，
+     * 并将回调事件转换为 {@link LlmStreamEvent}。</p>
+     *
+     * @param request 聊天请求
+     * @return LLM 流式事件发布者
+     */
+    default Flow.Publisher<LlmStreamEvent> streamChatPublisher(ChatRequest request) {
+        return new BlockingStreamChatPublisher(this, request);
     }
 }

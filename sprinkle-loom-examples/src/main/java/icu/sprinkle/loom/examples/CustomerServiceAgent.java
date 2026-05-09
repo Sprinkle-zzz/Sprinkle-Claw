@@ -1,7 +1,7 @@
 package icu.sprinkle.loom.examples;
 
-import icu.sprinkle.loom.bootstrap.LoomBuilder;
 import icu.sprinkle.loom.bootstrap.Loom;
+import icu.sprinkle.loom.bootstrap.LoomBuilder;
 import icu.sprinkle.loom.core.AgentResult;
 
 import java.util.List;
@@ -23,7 +23,7 @@ import java.util.concurrent.CompletableFuture;
 public class CustomerServiceAgent {
 
     public static void main(String[] args) throws Exception {
-        try (Loom claw = LoomBuilder.create()
+        try (Loom loom = LoomBuilder.create()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
                 .model("deepseek-v4-flash")
@@ -48,11 +48,11 @@ public class CustomerServiceAgent {
                 .build()) {
 
             // 异步多轮对话
-            CompletableFuture<AgentResult> future = claw.chatAsync("你好，我想退款");
+            CompletableFuture<AgentResult> future = loom.chatAsync("你好，我想退款");
             AgentResult r1 = future.get();
             System.out.println("[客服] " + r1.output());
 
-            AgentResult r2 = claw.chat("订单号是 20260425001");
+            AgentResult r2 = loom.chat("订单号是 20260425001");
             System.out.println("[客服] " + r2.output());
         }
     }

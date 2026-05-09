@@ -1,7 +1,7 @@
 package icu.sprinkle.loom.examples;
 
-import icu.sprinkle.loom.bootstrap.LoomBuilder;
 import icu.sprinkle.loom.bootstrap.Loom;
+import icu.sprinkle.loom.bootstrap.LoomBuilder;
 import icu.sprinkle.loom.core.AgentResult;
 
 import java.nio.file.Path;
@@ -19,7 +19,7 @@ import java.util.Map;
 public class CodingAgent {
 
     public static void main(String[] args) {
-        try (Loom claw = LoomBuilder.create()
+        try (Loom loom = LoomBuilder.create()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
                 .model("deepseek-v4-flash")
@@ -30,7 +30,7 @@ public class CodingAgent {
                 .systemPrompt("你是一个 Java 编程助手，帮助用户读取和修改代码。")
                 .build()) {
 
-            AgentResult result = claw.run("读取当前目录下的 pom.xml，告诉我项目名称和版本号");
+            AgentResult result = loom.run("读取当前目录下的 pom.xml，告诉我项目名称和版本号");
             System.out.println(result.output());
             System.out.printf("迭代次数: %d, 工具调用: %d%n",
                     result.totalIterations(), result.toolExecutions().size());

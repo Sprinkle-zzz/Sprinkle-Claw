@@ -1,7 +1,7 @@
 package icu.sprinkle.loom.examples;
 
-import icu.sprinkle.loom.bootstrap.LoomBuilder;
 import icu.sprinkle.loom.bootstrap.Loom;
+import icu.sprinkle.loom.bootstrap.LoomBuilder;
 import icu.sprinkle.loom.core.AgentResult;
 
 /**
@@ -18,14 +18,14 @@ import icu.sprinkle.loom.core.AgentResult;
 public class MinimalAgent {
 
     public static void main(String[] args) {
-        try (Loom claw = LoomBuilder.create()
+        try (Loom loom = LoomBuilder.create()
                 .apiKey(System.getenv("DEEPSEEK_API_KEY"))
                 .baseUrl("https://api.deepseek.com/v1")
                 .model("deepseek-v4-flash")
                 .systemPrompt("你是一个友好的助手，请用中文回答。")
                 .build()) {
 
-            AgentResult result = claw.run("你好！请用一句话介绍一下你自己。");
+            AgentResult result = loom.run("你好！请用一句话介绍一下你自己。");
 
             String thinking = result.thinking();
             if (!thinking.isEmpty()) {
