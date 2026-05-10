@@ -72,6 +72,8 @@ public class StreamingAgent {
             }
             case AgentEvent.ToolStart s ->
                     System.out.printf("%n[工具调用: %s]%n", s.toolName());
+            case AgentEvent.ToolResult r ->
+                    System.out.printf("%n[工具结果: %s]%n%s%n", r.toolName(), r.output());
             case AgentEvent.ToolEnd e ->
                     System.out.printf("%n[工具完成: %s, 耗时 %d ms]%n",
                             e.toolName(), e.duration().toMillis());

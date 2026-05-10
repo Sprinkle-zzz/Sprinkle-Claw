@@ -116,6 +116,18 @@ public final class ToolOutputTruncator {
     }
 
     /**
+     * 工具输出截断结果。
+     *
+     * @param output        发给 LLM 和事件流的输出
+     * @param truncated     是否发生截断或外部化
+     * @param originalBytes 原始输出字节数
+     * @param emittedBytes  实际输出字节数
+     */
+    public record TruncationResult(String output, boolean truncated,
+                                   int originalBytes, int emittedBytes) {
+    }
+
+    /**
      * 若输出超限则截断并保存完整内容到临时文件，否则原样返回。
      *
      * @param toolName 工具名称（用于生成临时文件名）
@@ -123,7 +135,7 @@ public final class ToolOutputTruncator {
      * @return 截断后的输出（或原样返回）
      */
     public String truncateIfNeeded(String toolName, String output) {
-        return truncateIfNeeded(toolName, output, maxBytes);
+        return truncateWithMetadata(toolName, output, maxBytes).output();
     }
 
     /**
@@ -135,22 +147,46 @@ public final class ToolOutputTruncator {
      * @return 截断后的输出（或原样返回）
      */
     public String truncateIfNeeded(String toolName, String output, int effectiveMaxBytes) {
+        return truncateWithMetadata(toolName, output, effectiveMaxBytes).output();
+    }
+
+    /**
+     * 使用默认字节上限截断并返回截断元信息。
+     *
+     * @param toolName 工具名称
+     * @param output   工具原始输出
+     * @return 截断结果
+     */
+    public TruncationResult truncateWithMetadata(String toolName, String output) {
+        return truncateWithMetadata(toolName, output, maxBytes);
+    }
+
+    /**
+     * 自适应截断并返回截断元信息。
+     *
+     * @param toolName          工具名称
+     * @param output            工具原始输出
+     * @param effectiveMaxBytes 当前有效的字节上限
+     * @return 截断结果
+     */
+    public TruncationResult truncateWithMetadata(String toolName, String output, int effectiveMaxBytes) {
         if (output == null || output.isEmpty()) {
-            return output;
+            return new TruncationResult(output, false, 0, 0);
         }
 
         int bytes = output.getBytes(StandardCharsets.UTF_8).length;
 
         // MVP3：超大输出转文件引用（不保留预览）
         if (largeOutputFileThreshold > 0 && bytes > largeOutputFileThreshold) {
-            return saveAsFileReference(toolName, output, bytes);
+            String emitted = saveAsFileReference(toolName, output, bytes);
+            return new TruncationResult(emitted, true, bytes, bytes(emitted));
         }
 
         boolean exceedsBytes = bytes > effectiveMaxBytes;
         boolean exceedsLines = countLines(output) > maxLines;
 
         if (!exceedsBytes && !exceedsLines) {
-            return output;
+            return new TruncationResult(output, false, bytes, bytes);
         }
 
         Path savedPath = saveFullOutput(toolName, output);
@@ -160,7 +196,12 @@ public final class ToolOutputTruncator {
                 + "]\n[Use read_file with offset/limit to view specific sections]"
                 : "\n\n[Output truncated. Use more specific queries to reduce output size]";
 
-        return preview + hint;
+        String emitted = preview + hint;
+        return new TruncationResult(emitted, true, bytes, bytes(emitted));
+    }
+
+    private static int bytes(String output) {
+        return output == null ? 0 : output.getBytes(StandardCharsets.UTF_8).length;
     }
 
     /**

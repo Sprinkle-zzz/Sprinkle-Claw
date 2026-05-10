@@ -123,6 +123,8 @@ FlowStreams.subscribe(loom.runStreaming("写一首关于秋天的诗"))
         .onNext(event -> {
             if (event instanceof AgentEvent.LlmToken t) {
                 System.out.print(t.token());        // 逐 token 渲染
+            } else if (event instanceof AgentEvent.ToolResult r) {
+                System.out.printf("%n[工具结果: %s]%n%s%n", r.toolName(), r.output());
             }
         })
         .onError(Throwable::printStackTrace)
@@ -136,7 +138,7 @@ Spring WebFlux 场景可直接使用 starter 提供的 Reactor 适配器：
 Flux<AgentEvent> events = LoomFluxAdapters.runFlux(loom, "写一首关于秋天的诗");
 ```
 
-`AgentEvent` 是 sealed interface（17 种事件：`LlmToken` / `ThinkingToken` / `ToolStart` / `ToolEnd` / `IterationComplete` / `AgentComplete` / `AgentError` 等）。应用端面向 `Flow.Publisher<AgentEvent>` 或 `Flux<AgentEvent>` 即可，不需要感知底层是阻塞 HTTP、异步 HTTP、SSE 还是 WebSocket。底层 LLM Provider 也提供 `LlmProvider.streamChatPublisher(ChatRequest)`，用于只需要模型 token / thinking / tool input chunk 的低层场景；业务前端通常优先使用 Agent 层事件流。
+`AgentEvent` 是 sealed interface（包含 `LlmToken` / `ThinkingToken` / `ToolStart` / `ToolResult` / `ToolEnd` / `IterationComplete` / `AgentComplete` / `AgentError` 等）。应用端面向 `Flow.Publisher<AgentEvent>` 或 `Flux<AgentEvent>` 即可，不需要感知底层是阻塞 HTTP、异步 HTTP、SSE 还是 WebSocket。底层 LLM Provider 也提供 `LlmProvider.streamChatPublisher(ChatRequest)`，用于只需要模型 token / thinking / tool input chunk 的低层场景；业务前端通常优先使用 Agent 层事件流。
 
 ### A.5 长期记忆 / 多轮会话
 

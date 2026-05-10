@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +45,25 @@ class SseEventAdapterTest {
         assertThat(sse).contains("event: tool_start\n");
         assertThat(sse).contains("\"tool\":\"read_file\"");
         assertThat(sse).contains("\"tool_use_id\":\"toolu_001\"");
+    }
+
+    @Test
+    void toolResultEventFormat() {
+        var event = new AgentEvent.ToolResult(
+                Instant.now(), "read_file", "toolu_001", "file content",
+                true, Duration.ofMillis(12), false, 12, 12);
+
+        String sse = adapter.toSse(event);
+
+        assertThat(sse).contains("event: tool_result\n");
+        assertThat(sse).contains("\"tool\":\"read_file\"");
+        assertThat(sse).contains("\"tool_use_id\":\"toolu_001\"");
+        assertThat(sse).contains("\"output\":\"file content\"");
+        assertThat(sse).contains("\"success\":true");
+        assertThat(sse).contains("\"duration_ms\":12");
+        assertThat(sse).contains("\"truncated\":false");
+        assertThat(sse).contains("\"original_bytes\":12");
+        assertThat(sse).contains("\"emitted_bytes\":12");
     }
 
     @Test

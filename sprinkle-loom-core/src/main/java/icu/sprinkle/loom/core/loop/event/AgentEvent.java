@@ -71,6 +71,14 @@ public sealed interface AgentEvent {
                    boolean success, Duration duration) implements AgentEvent {
     }
 
+    /**
+     * 工具执行结果。
+     */
+    record ToolResult(Instant timestamp, String toolName, String toolUseId,
+                      String output, boolean success, Duration duration,
+                      boolean truncated, int originalBytes, int emittedBytes) implements AgentEvent {
+    }
+
     // ===== 压缩事件 =====
 
     /**

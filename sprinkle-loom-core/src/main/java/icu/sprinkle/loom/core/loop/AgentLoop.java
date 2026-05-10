@@ -542,6 +542,12 @@ public final class AgentLoop {
                     }
                 }
 
+                for (ToolResult skipped : skippedResults) {
+                    publisher.submit(new AgentEvent.ToolResult(
+                            Instant.now(), skipped.toolName(), skipped.toolCallId(), skipped.output(),
+                            false, Duration.ZERO, false, bytes(skipped.output()), bytes(skipped.output())));
+                }
+
                 // 发射工具开始/结束事件
                 for (ToolUseBlock call : approvedCalls) {
                     publisher.submit(new AgentEvent.ToolStart(
@@ -561,6 +567,10 @@ public final class AgentLoop {
                 allToolExecutions.addAll(execResult.executions());
 
                 for (var exec : execResult.executions()) {
+                    publisher.submit(new AgentEvent.ToolResult(
+                            Instant.now(), exec.toolName(), exec.toolCallId(), exec.output(),
+                            !exec.isError(), exec.duration(), exec.truncated(),
+                            exec.originalBytes(), exec.emittedBytes()));
                     publisher.submit(new AgentEvent.ToolEnd(
                             Instant.now(), exec.toolName(), exec.toolCallId(),
                             !exec.isError(), exec.duration()));
@@ -610,5 +620,9 @@ public final class AgentLoop {
                 iterations, new Usage(inputTokens, outputTokens),
                 Duration.between(start, Instant.now()), toolExecutions
         );
+    }
+
+    private static int bytes(String output) {
+        return output == null ? 0 : output.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
     }
 }

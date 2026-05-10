@@ -169,14 +169,17 @@ public final class ToolExecutor {
         try {
             ToolResult result = tool.execute(call.input(), context).withCallId(call.id());
 
+            ToolOutputTruncator.TruncationResult truncation = new ToolOutputTruncator.TruncationResult(
+                    result.output(), false, bytes(result.output()), bytes(result.output()));
+
             // 输出截断（支持自适应字节上限）
             if (truncator != null && !result.isError()) {
-                String truncatedOutput = effectiveMaxBytes > 0
-                        ? truncator.truncateIfNeeded(call.name(), result.output(), effectiveMaxBytes)
-                        : truncator.truncateIfNeeded(call.name(), result.output());
-                if (!truncatedOutput.equals(result.output())) {
+                truncation = effectiveMaxBytes > 0
+                        ? truncator.truncateWithMetadata(call.name(), result.output(), effectiveMaxBytes)
+                        : truncator.truncateWithMetadata(call.name(), result.output());
+                if (!truncation.output().equals(result.output())) {
                     result = new ToolResult(result.toolCallId(), result.toolName(),
-                            truncatedOutput, result.isError());
+                            truncation.output(), result.isError());
                 }
             }
 
@@ -185,7 +188,8 @@ public final class ToolExecutor {
 
             ToolExecution exec = new ToolExecution(
                     call.id(), call.name(), call.input().toString(),
-                    result.output(), result.isError(), elapsed);
+                    result.output(), result.isError(), elapsed,
+                    truncation.truncated(), truncation.originalBytes(), truncation.emittedBytes());
             return new SingleResult(result, exec);
 
         } catch (Exception e) {
@@ -203,5 +207,9 @@ public final class ToolExecutor {
                     call.input().toString(), output, true, elapsed);
             return new SingleResult(ToolResult.error(call.name(), output).withCallId(call.id()), exec);
         }
+    }
+
+    private static int bytes(String output) {
+        return output == null ? 0 : output.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
     }
 }

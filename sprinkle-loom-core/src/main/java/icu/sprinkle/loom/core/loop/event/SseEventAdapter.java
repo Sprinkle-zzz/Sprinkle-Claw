@@ -76,6 +76,7 @@ public class SseEventAdapter {
             case AgentEvent.LlmCallStart s -> "llm_call_start";
             case AgentEvent.LlmCallEnd e -> "llm_call_end";
             case AgentEvent.ToolStart t -> "tool_start";
+            case AgentEvent.ToolResult t -> "tool_result";
             case AgentEvent.ToolEnd t -> "tool_end";
             case AgentEvent.Compaction c -> "compaction";
             case AgentEvent.IterationComplete i -> "iteration_complete";
@@ -100,6 +101,10 @@ public class SseEventAdapter {
             case AgentEvent.LlmCallEnd e -> mapOf("iteration", e.iteration(),
                     "input_tokens", e.inputTokens(), "output_tokens", e.outputTokens());
             case AgentEvent.ToolStart t -> Map.of("tool", t.toolName(), "tool_use_id", t.toolUseId());
+            case AgentEvent.ToolResult t -> mapOf("tool", t.toolName(), "tool_use_id", t.toolUseId(),
+                    "output", t.output(), "success", t.success(), "duration_ms", t.duration().toMillis(),
+                    "truncated", t.truncated(), "original_bytes", t.originalBytes(),
+                    "emitted_bytes", t.emittedBytes());
             case AgentEvent.ToolEnd t -> mapOf("tool", t.toolName(), "tool_use_id", t.toolUseId(),
                     "success", t.success(), "duration_ms", t.duration().toMillis());
             case AgentEvent.Compaction c -> mapOf("type", c.type().name(),
