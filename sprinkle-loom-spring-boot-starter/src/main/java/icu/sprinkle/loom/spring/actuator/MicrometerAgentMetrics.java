@@ -23,17 +23,17 @@ public class MicrometerAgentMetrics implements AgentMetrics {
     private final Counter tokensOutput;
 
     public MicrometerAgentMetrics(MeterRegistry registry) {
-        this.llmCalls = Counter.builder("sprinkle_claw.llm.calls")
+        this.llmCalls = Counter.builder("sprinkle_loom.llm.calls")
                 .description("LLM 调用次数").register(registry);
-        this.llmErrors = Counter.builder("sprinkle_claw.llm.errors")
+        this.llmErrors = Counter.builder("sprinkle_loom.llm.errors")
                 .description("LLM 错误次数").register(registry);
-        this.llmLatency = Timer.builder("sprinkle_claw.llm.latency")
+        this.llmLatency = Timer.builder("sprinkle_loom.llm.latency")
                 .description("LLM 调用延迟").register(registry);
-        this.toolCalls = Counter.builder("sprinkle_claw.tools.calls")
+        this.toolCalls = Counter.builder("sprinkle_loom.tools.calls")
                 .description("工具调用次数").register(registry);
-        this.tokensInput = Counter.builder("sprinkle_claw.tokens.input")
+        this.tokensInput = Counter.builder("sprinkle_loom.tokens.input")
                 .description("输入 token 总量").register(registry);
-        this.tokensOutput = Counter.builder("sprinkle_claw.tokens.output")
+        this.tokensOutput = Counter.builder("sprinkle_loom.tokens.output")
                 .description("输出 token 总量").register(registry);
     }
 

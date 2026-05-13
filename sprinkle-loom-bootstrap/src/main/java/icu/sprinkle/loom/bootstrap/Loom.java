@@ -163,7 +163,7 @@ public final class Loom implements AutoCloseable {
     }
 
     private static final ExecutorService ASYNC_EXECUTOR =
-            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("claw-async-", 0).factory());
+            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("loom-async-", 0).factory());
 
     private CompletableFuture<AgentResult> executeAsync(java.util.function.Supplier<AgentResult> task) {
         if (!running.compareAndSet(false, true)) {

@@ -30,8 +30,8 @@ public class ActuatorAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean(name = "sprinkleLoomHealthIndicator")
         @ConditionalOnBean(Loom.class)
-        public HealthIndicator sprinkleLoomHealthIndicator(Loom claw) {
-            return new SprinkleLoomHealthIndicator(claw);
+        public HealthIndicator sprinkleLoomHealthIndicator(Loom loom) {
+            return new SprinkleLoomHealthIndicator(loom);
         }
     }
 

@@ -890,7 +890,7 @@ public final class LoomBuilder {
      * {@link #model}（必填），按需 {@link #annotatedTools}、{@link #addSkill} 注册业务工具与技能。</p>
      *
      * <pre>{@code
-     * Loom claw = LoomBuilder.chatBot()
+     * Loom loom = LoomBuilder.chatBot()
      *         .apiKey(...).model(...)
      *         .systemPrompt("你是客服")
      *         .annotatedTools(new OrderTools())
@@ -913,7 +913,7 @@ public final class LoomBuilder {
      * 必填，否则 {@link #build()} 会抛 {@link IllegalStateException}。</p>
      *
      * <pre>{@code
-     * Loom claw = LoomBuilder.codingAgent(Path.of("/work/myproject"))
+     * Loom loom = LoomBuilder.codingAgent(Path.of("/work/myproject"))
      *         .apiKey(...).model(...)
      *         .build();
      * }</pre>
@@ -937,7 +937,7 @@ public final class LoomBuilder {
      * 通过 {@link #annotatedTools} 注入业务操作。</p>
      *
      * <pre>{@code
-     * Loom claw = LoomBuilder.businessAgent()
+     * Loom loom = LoomBuilder.businessAgent()
      *         .apiKey(...).model(...)
      *         .addSkill("refund-policy", "退款政策", refundPolicyMd)
      *         .annotatedTools(new RefundTools())

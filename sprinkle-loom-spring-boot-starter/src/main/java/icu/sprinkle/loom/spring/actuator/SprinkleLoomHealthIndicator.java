@@ -12,15 +12,15 @@ import org.springframework.boot.actuate.health.HealthIndicator;
  */
 public class SprinkleLoomHealthIndicator implements HealthIndicator {
 
-    private final Loom claw;
+    private final Loom loom;
 
-    public SprinkleLoomHealthIndicator(Loom claw) {
-        this.claw = claw;
+    public SprinkleLoomHealthIndicator(Loom loom) {
+        this.loom = loom;
     }
 
     @Override
     public Health health() {
-        if (claw == null) {
+        if (loom == null) {
             return Health.down().withDetail("reason", "Loom not initialized").build();
         }
         return Health.up().withDetail("status", "Agent ready").build();

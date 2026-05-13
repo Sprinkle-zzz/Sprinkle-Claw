@@ -11,8 +11,8 @@ import java.util.function.Function;
  * <p>通过函数式接口解耦，避免 workflow 模块直接依赖 Loom 实例类型。</p>
  *
  * <pre>{@code
- * var claw = LoomBuilder.create().llmProvider(provider).build();
- * var step = new LoomStep(prompt -> claw.run(prompt).finalText());
+ * var loom = LoomBuilder.create().llmProvider(provider).build();
+ * var step = new LoomStep(prompt -> loom.run(prompt).finalText());
  * }</pre>
  *
  * @author sprinkle
@@ -20,22 +20,22 @@ import java.util.function.Function;
  */
 public final class LoomStep implements WorkflowStep<String, String> {
 
-    private final Function<String, String> clawFunction;
+    private final Function<String, String> loomFunction;
     private final String stepName;
 
-    public LoomStep(Function<String, String> clawFunction) {
-        this("claw", clawFunction);
+    public LoomStep(Function<String, String> loomFunction) {
+        this("loom", loomFunction);
     }
 
-    public LoomStep(String name, Function<String, String> clawFunction) {
+    public LoomStep(String name, Function<String, String> loomFunction) {
         this.stepName = name;
-        this.clawFunction = clawFunction;
+        this.loomFunction = loomFunction;
     }
 
     @Override
     public String execute(String prompt, WorkflowContext ctx) throws WorkflowException {
         try {
-            return clawFunction.apply(prompt);
+            return loomFunction.apply(prompt);
         } catch (Exception e) {
             throw new WorkflowException(stepName, -1, e);
         }
