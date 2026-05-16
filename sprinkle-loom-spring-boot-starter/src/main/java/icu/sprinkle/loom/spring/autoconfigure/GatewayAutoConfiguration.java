@@ -14,7 +14,6 @@ import icu.sprinkle.loom.gateway.filter.GatewayFilter;
 import icu.sprinkle.loom.gateway.filter.GatewayFilterChain;
 import icu.sprinkle.loom.gateway.metrics.AsyncBufferedUsageReporter;
 import icu.sprinkle.loom.gateway.metrics.TokenMeteringFilter;
-import icu.sprinkle.loom.gateway.metrics.UsageEvent;
 import icu.sprinkle.loom.gateway.metrics.UsageReporter;
 import icu.sprinkle.loom.gateway.ratelimit.Bucket4jRateLimiter;
 import icu.sprinkle.loom.gateway.ratelimit.RateLimitFilter;

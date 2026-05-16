@@ -70,6 +70,13 @@ public class SprinkleLoomProperties {
      */
     public static class Llm {
         private String primary;
+        private Integer contextWindowTokens;
+        private Integer maxOutputTokens;
+        private Integer maxTokens;
+        private Double temperature;
+        private Duration requestTimeout;
+        private Map<String, String> headers = new LinkedHashMap<>();
+        private Map<String, Object> customParameters = new LinkedHashMap<>();
         private Map<String, Instance> instances = new LinkedHashMap<>();
 
         public String getPrimary() {
@@ -78,6 +85,62 @@ public class SprinkleLoomProperties {
 
         public void setPrimary(String primary) {
             this.primary = primary;
+        }
+
+        public Integer getContextWindowTokens() {
+            return contextWindowTokens;
+        }
+
+        public void setContextWindowTokens(Integer contextWindowTokens) {
+            this.contextWindowTokens = contextWindowTokens;
+        }
+
+        public Integer getMaxOutputTokens() {
+            return maxOutputTokens;
+        }
+
+        public void setMaxOutputTokens(Integer maxOutputTokens) {
+            this.maxOutputTokens = maxOutputTokens;
+        }
+
+        public Integer getMaxTokens() {
+            return maxTokens;
+        }
+
+        public void setMaxTokens(Integer maxTokens) {
+            this.maxTokens = maxTokens;
+        }
+
+        public Double getTemperature() {
+            return temperature;
+        }
+
+        public void setTemperature(Double temperature) {
+            this.temperature = temperature;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public Map<String, String> getHeaders() {
+            return headers;
+        }
+
+        public void setHeaders(Map<String, String> headers) {
+            this.headers = headers;
+        }
+
+        public Map<String, Object> getCustomParameters() {
+            return customParameters;
+        }
+
+        public void setCustomParameters(Map<String, Object> customParameters) {
+            this.customParameters = customParameters;
         }
 
         public Map<String, Instance> getInstances() {
@@ -99,13 +162,35 @@ public class SprinkleLoomProperties {
             private String apiKey;
             private String model;
             private String baseUrl;
+            private Integer contextWindowTokens;
+            private Integer maxOutputTokens;
+            private Integer maxTokens;
+            private Double temperature;
+            private Duration requestTimeout;
+            private Map<String, String> headers;
+            private Map<String, Object> customParameters;
 
             // ===== Agent 覆盖字段（null 沿用全局） =====
             private Integer maxIterations;
             private Duration loopTimeout;
+            private Duration toolTimeout;
             private String systemPrompt;
             private String workingDirectory;
             private Integer compactionThreshold;
+            private Integer autoSaveInterval;
+            private Boolean enableFileTools;
+            private Boolean enableBashTool;
+            private Boolean enableManualCompact;
+            private Boolean enableTodoWrite;
+            private Integer todoNagThreshold;
+            private Boolean enableFileSnapshot;
+            private Boolean enableSubAgent;
+            private Boolean enableSkill;
+            private String skillsDirectory;
+            private Boolean enableTaskBoard;
+            private String tasksDirectory;
+            private Boolean enableBackgroundTasks;
+            private String identityPrompt;
 
             // ===== Tools 覆盖字段（null 沿用全局） =====
             private List<String> blockedCommands;
@@ -118,16 +203,60 @@ public class SprinkleLoomProperties {
             public void setModel(String model) { this.model = model; }
             public String getBaseUrl() { return baseUrl; }
             public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+            public Integer getContextWindowTokens() { return contextWindowTokens; }
+            public void setContextWindowTokens(Integer contextWindowTokens) { this.contextWindowTokens = contextWindowTokens; }
+            public Integer getMaxOutputTokens() { return maxOutputTokens; }
+            public void setMaxOutputTokens(Integer maxOutputTokens) { this.maxOutputTokens = maxOutputTokens; }
+            public Integer getMaxTokens() { return maxTokens; }
+            public void setMaxTokens(Integer maxTokens) { this.maxTokens = maxTokens; }
+            public Double getTemperature() { return temperature; }
+            public void setTemperature(Double temperature) { this.temperature = temperature; }
+            public Duration getRequestTimeout() { return requestTimeout; }
+            public void setRequestTimeout(Duration requestTimeout) { this.requestTimeout = requestTimeout; }
+            public Map<String, String> getHeaders() { return headers; }
+            public void setHeaders(Map<String, String> headers) { this.headers = headers; }
+            public Map<String, Object> getCustomParameters() { return customParameters; }
+            public void setCustomParameters(Map<String, Object> customParameters) { this.customParameters = customParameters; }
             public Integer getMaxIterations() { return maxIterations; }
             public void setMaxIterations(Integer maxIterations) { this.maxIterations = maxIterations; }
             public Duration getLoopTimeout() { return loopTimeout; }
             public void setLoopTimeout(Duration loopTimeout) { this.loopTimeout = loopTimeout; }
+            public Duration getToolTimeout() { return toolTimeout; }
+            public void setToolTimeout(Duration toolTimeout) { this.toolTimeout = toolTimeout; }
             public String getSystemPrompt() { return systemPrompt; }
             public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
             public String getWorkingDirectory() { return workingDirectory; }
             public void setWorkingDirectory(String workingDirectory) { this.workingDirectory = workingDirectory; }
             public Integer getCompactionThreshold() { return compactionThreshold; }
             public void setCompactionThreshold(Integer compactionThreshold) { this.compactionThreshold = compactionThreshold; }
+            public Integer getAutoSaveInterval() { return autoSaveInterval; }
+            public void setAutoSaveInterval(Integer autoSaveInterval) { this.autoSaveInterval = autoSaveInterval; }
+            public Boolean getEnableFileTools() { return enableFileTools; }
+            public void setEnableFileTools(Boolean enableFileTools) { this.enableFileTools = enableFileTools; }
+            public Boolean getEnableBashTool() { return enableBashTool; }
+            public void setEnableBashTool(Boolean enableBashTool) { this.enableBashTool = enableBashTool; }
+            public Boolean getEnableManualCompact() { return enableManualCompact; }
+            public void setEnableManualCompact(Boolean enableManualCompact) { this.enableManualCompact = enableManualCompact; }
+            public Boolean getEnableTodoWrite() { return enableTodoWrite; }
+            public void setEnableTodoWrite(Boolean enableTodoWrite) { this.enableTodoWrite = enableTodoWrite; }
+            public Integer getTodoNagThreshold() { return todoNagThreshold; }
+            public void setTodoNagThreshold(Integer todoNagThreshold) { this.todoNagThreshold = todoNagThreshold; }
+            public Boolean getEnableFileSnapshot() { return enableFileSnapshot; }
+            public void setEnableFileSnapshot(Boolean enableFileSnapshot) { this.enableFileSnapshot = enableFileSnapshot; }
+            public Boolean getEnableSubAgent() { return enableSubAgent; }
+            public void setEnableSubAgent(Boolean enableSubAgent) { this.enableSubAgent = enableSubAgent; }
+            public Boolean getEnableSkill() { return enableSkill; }
+            public void setEnableSkill(Boolean enableSkill) { this.enableSkill = enableSkill; }
+            public String getSkillsDirectory() { return skillsDirectory; }
+            public void setSkillsDirectory(String skillsDirectory) { this.skillsDirectory = skillsDirectory; }
+            public Boolean getEnableTaskBoard() { return enableTaskBoard; }
+            public void setEnableTaskBoard(Boolean enableTaskBoard) { this.enableTaskBoard = enableTaskBoard; }
+            public String getTasksDirectory() { return tasksDirectory; }
+            public void setTasksDirectory(String tasksDirectory) { this.tasksDirectory = tasksDirectory; }
+            public Boolean getEnableBackgroundTasks() { return enableBackgroundTasks; }
+            public void setEnableBackgroundTasks(Boolean enableBackgroundTasks) { this.enableBackgroundTasks = enableBackgroundTasks; }
+            public String getIdentityPrompt() { return identityPrompt; }
+            public void setIdentityPrompt(String identityPrompt) { this.identityPrompt = identityPrompt; }
             public List<String> getBlockedCommands() { return blockedCommands; }
             public void setBlockedCommands(List<String> blockedCommands) { this.blockedCommands = blockedCommands; }
         }
@@ -136,9 +265,24 @@ public class SprinkleLoomProperties {
     public static class Agent {
         private int maxIterations = 200;
         private Duration loopTimeout = Duration.ofMinutes(30);
+        private Duration toolTimeout = Duration.ofSeconds(120);
         private String systemPrompt = "";
         private String workingDirectory;
         private int compactionThreshold = 100_000;
+        private int autoSaveInterval = 5;
+        private boolean enableFileTools = false;
+        private boolean enableBashTool = false;
+        private boolean enableManualCompact = false;
+        private boolean enableTodoWrite = false;
+        private int todoNagThreshold = 3;
+        private boolean enableFileSnapshot = false;
+        private boolean enableSubAgent = false;
+        private boolean enableSkill = false;
+        private String skillsDirectory;
+        private boolean enableTaskBoard = false;
+        private String tasksDirectory;
+        private boolean enableBackgroundTasks = false;
+        private String identityPrompt = "";
 
         public int getMaxIterations() {
             return maxIterations;
@@ -154,6 +298,14 @@ public class SprinkleLoomProperties {
 
         public void setLoopTimeout(Duration loopTimeout) {
             this.loopTimeout = loopTimeout;
+        }
+
+        public Duration getToolTimeout() {
+            return toolTimeout;
+        }
+
+        public void setToolTimeout(Duration toolTimeout) {
+            this.toolTimeout = toolTimeout;
         }
 
         public String getSystemPrompt() {
@@ -178,6 +330,118 @@ public class SprinkleLoomProperties {
 
         public void setCompactionThreshold(int compactionThreshold) {
             this.compactionThreshold = compactionThreshold;
+        }
+
+        public int getAutoSaveInterval() {
+            return autoSaveInterval;
+        }
+
+        public void setAutoSaveInterval(int autoSaveInterval) {
+            this.autoSaveInterval = autoSaveInterval;
+        }
+
+        public boolean isEnableFileTools() {
+            return enableFileTools;
+        }
+
+        public void setEnableFileTools(boolean enableFileTools) {
+            this.enableFileTools = enableFileTools;
+        }
+
+        public boolean isEnableBashTool() {
+            return enableBashTool;
+        }
+
+        public void setEnableBashTool(boolean enableBashTool) {
+            this.enableBashTool = enableBashTool;
+        }
+
+        public boolean isEnableManualCompact() {
+            return enableManualCompact;
+        }
+
+        public void setEnableManualCompact(boolean enableManualCompact) {
+            this.enableManualCompact = enableManualCompact;
+        }
+
+        public boolean isEnableTodoWrite() {
+            return enableTodoWrite;
+        }
+
+        public void setEnableTodoWrite(boolean enableTodoWrite) {
+            this.enableTodoWrite = enableTodoWrite;
+        }
+
+        public int getTodoNagThreshold() {
+            return todoNagThreshold;
+        }
+
+        public void setTodoNagThreshold(int todoNagThreshold) {
+            this.todoNagThreshold = todoNagThreshold;
+        }
+
+        public boolean isEnableFileSnapshot() {
+            return enableFileSnapshot;
+        }
+
+        public void setEnableFileSnapshot(boolean enableFileSnapshot) {
+            this.enableFileSnapshot = enableFileSnapshot;
+        }
+
+        public boolean isEnableSubAgent() {
+            return enableSubAgent;
+        }
+
+        public void setEnableSubAgent(boolean enableSubAgent) {
+            this.enableSubAgent = enableSubAgent;
+        }
+
+        public boolean isEnableSkill() {
+            return enableSkill;
+        }
+
+        public void setEnableSkill(boolean enableSkill) {
+            this.enableSkill = enableSkill;
+        }
+
+        public String getSkillsDirectory() {
+            return skillsDirectory;
+        }
+
+        public void setSkillsDirectory(String skillsDirectory) {
+            this.skillsDirectory = skillsDirectory;
+        }
+
+        public boolean isEnableTaskBoard() {
+            return enableTaskBoard;
+        }
+
+        public void setEnableTaskBoard(boolean enableTaskBoard) {
+            this.enableTaskBoard = enableTaskBoard;
+        }
+
+        public String getTasksDirectory() {
+            return tasksDirectory;
+        }
+
+        public void setTasksDirectory(String tasksDirectory) {
+            this.tasksDirectory = tasksDirectory;
+        }
+
+        public boolean isEnableBackgroundTasks() {
+            return enableBackgroundTasks;
+        }
+
+        public void setEnableBackgroundTasks(boolean enableBackgroundTasks) {
+            this.enableBackgroundTasks = enableBackgroundTasks;
+        }
+
+        public String getIdentityPrompt() {
+            return identityPrompt;
+        }
+
+        public void setIdentityPrompt(String identityPrompt) {
+            this.identityPrompt = identityPrompt;
         }
     }
 

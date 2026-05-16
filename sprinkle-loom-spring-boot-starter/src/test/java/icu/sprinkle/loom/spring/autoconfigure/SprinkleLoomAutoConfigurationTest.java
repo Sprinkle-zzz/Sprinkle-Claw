@@ -23,11 +23,113 @@ class SprinkleLoomAutoConfigurationTest {
     void propertiesAreBoundUnderSprinkleLoomPrefix() {
         // 不配 instances 避免触发 BeanRegistrar 调真实 LoomBuilder.build()
         // （test classpath 无 LLM provider）。多实例字段绑定见 SprinkleLoomMultiInstanceTest。
-        runner.withPropertyValues("sprinkle-loom.agent.max-iterations=50")
+        runner.withPropertyValues(
+                        "sprinkle-loom.agent.max-iterations=50",
+                        "sprinkle-loom.agent.tool-timeout=45s",
+                        "sprinkle-loom.agent.auto-save-interval=7",
+                        "sprinkle-loom.agent.enable-file-tools=true",
+                        "sprinkle-loom.agent.enable-bash-tool=true",
+                        "sprinkle-loom.agent.enable-manual-compact=true",
+                        "sprinkle-loom.agent.enable-todo-write=true",
+                        "sprinkle-loom.agent.todo-nag-threshold=4",
+                        "sprinkle-loom.agent.enable-file-snapshot=true",
+                        "sprinkle-loom.agent.enable-sub-agent=true",
+                        "sprinkle-loom.agent.enable-skill=true",
+                        "sprinkle-loom.agent.skills-directory=skills",
+                        "sprinkle-loom.agent.enable-task-board=true",
+                        "sprinkle-loom.agent.tasks-directory=.tasks",
+                        "sprinkle-loom.agent.enable-background-tasks=true",
+                        "sprinkle-loom.agent.identity-prompt=identity",
+                        "sprinkle-loom.llm.context-window-tokens=64000",
+                        "sprinkle-loom.llm.max-output-tokens=8192",
+                        "sprinkle-loom.llm.max-tokens=4096",
+                        "sprinkle-loom.llm.temperature=0.2",
+                        "sprinkle-loom.llm.request-timeout=90s",
+                        "sprinkle-loom.llm.headers.X-Test=yes",
+                        "sprinkle-loom.llm.custom-parameters.enable_search=true")
                 .run(ctx -> {
                     SprinkleLoomProperties props = ctx.getBean(SprinkleLoomProperties.class);
                     assertThat(props.getAgent().getMaxIterations()).isEqualTo(50);
+                    assertThat(props.getAgent().getToolTimeout()).isEqualTo(java.time.Duration.ofSeconds(45));
+                    assertThat(props.getAgent().getAutoSaveInterval()).isEqualTo(7);
+                    assertThat(props.getAgent().isEnableFileTools()).isTrue();
+                    assertThat(props.getAgent().isEnableBashTool()).isTrue();
+                    assertThat(props.getAgent().isEnableManualCompact()).isTrue();
+                    assertThat(props.getAgent().isEnableTodoWrite()).isTrue();
+                    assertThat(props.getAgent().getTodoNagThreshold()).isEqualTo(4);
+                    assertThat(props.getAgent().isEnableFileSnapshot()).isTrue();
+                    assertThat(props.getAgent().isEnableSubAgent()).isTrue();
+                    assertThat(props.getAgent().isEnableSkill()).isTrue();
+                    assertThat(props.getAgent().getSkillsDirectory()).isEqualTo("skills");
+                    assertThat(props.getAgent().isEnableTaskBoard()).isTrue();
+                    assertThat(props.getAgent().getTasksDirectory()).isEqualTo(".tasks");
+                    assertThat(props.getAgent().isEnableBackgroundTasks()).isTrue();
+                    assertThat(props.getAgent().getIdentityPrompt()).isEqualTo("identity");
+                    assertThat(props.getLlm().getContextWindowTokens()).isEqualTo(64_000);
+                    assertThat(props.getLlm().getMaxOutputTokens()).isEqualTo(8_192);
+                    assertThat(props.getLlm().getMaxTokens()).isEqualTo(4_096);
+                    assertThat(props.getLlm().getTemperature()).isEqualTo(0.2);
+                    assertThat(props.getLlm().getRequestTimeout()).isEqualTo(java.time.Duration.ofSeconds(90));
+                    assertThat(props.getLlm().getHeaders()).containsEntry("X-Test", "yes");
+                    assertThat(props.getLlm().getCustomParameters()).containsEntry("enable_search", "true");
                     assertThat(props.getLlm().getInstances()).isEmpty();
+                });
+    }
+
+    @Test
+    void instanceTokenLimitsAreBoundFromProperties() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(PropertiesConfig.class)
+                .withPropertyValues(
+                        "sprinkle-loom.llm.instances.fast.api-key=k",
+                        "sprinkle-loom.llm.instances.fast.model=m",
+                        "sprinkle-loom.llm.instances.fast.context-window-tokens=32000",
+                        "sprinkle-loom.llm.instances.fast.max-output-tokens=4096",
+                        "sprinkle-loom.llm.instances.fast.max-tokens=2048",
+                        "sprinkle-loom.llm.instances.fast.temperature=0.1",
+                        "sprinkle-loom.llm.instances.fast.request-timeout=60s",
+                        "sprinkle-loom.llm.instances.fast.headers.X-Instance=yes",
+                        "sprinkle-loom.llm.instances.fast.custom-parameters.top_p=0.8",
+                        "sprinkle-loom.llm.instances.fast.tool-timeout=30s",
+                        "sprinkle-loom.llm.instances.fast.auto-save-interval=2",
+                        "sprinkle-loom.llm.instances.fast.enable-file-tools=true",
+                        "sprinkle-loom.llm.instances.fast.enable-bash-tool=true",
+                        "sprinkle-loom.llm.instances.fast.enable-manual-compact=true",
+                        "sprinkle-loom.llm.instances.fast.enable-todo-write=true",
+                        "sprinkle-loom.llm.instances.fast.todo-nag-threshold=5",
+                        "sprinkle-loom.llm.instances.fast.enable-file-snapshot=true",
+                        "sprinkle-loom.llm.instances.fast.enable-sub-agent=true",
+                        "sprinkle-loom.llm.instances.fast.enable-skill=true",
+                        "sprinkle-loom.llm.instances.fast.skills-directory=instance-skills",
+                        "sprinkle-loom.llm.instances.fast.enable-task-board=true",
+                        "sprinkle-loom.llm.instances.fast.tasks-directory=instance-tasks",
+                        "sprinkle-loom.llm.instances.fast.enable-background-tasks=true",
+                        "sprinkle-loom.llm.instances.fast.identity-prompt=fast identity")
+                .run(ctx -> {
+                    SprinkleLoomProperties props = ctx.getBean(SprinkleLoomProperties.class);
+                    SprinkleLoomProperties.Llm.Instance fast = props.getLlm().getInstances().get("fast");
+                    assertThat(fast.getContextWindowTokens()).isEqualTo(32_000);
+                    assertThat(fast.getMaxOutputTokens()).isEqualTo(4_096);
+                    assertThat(fast.getMaxTokens()).isEqualTo(2_048);
+                    assertThat(fast.getTemperature()).isEqualTo(0.1);
+                    assertThat(fast.getRequestTimeout()).isEqualTo(java.time.Duration.ofSeconds(60));
+                    assertThat(fast.getHeaders()).containsEntry("X-Instance", "yes");
+                    assertThat(fast.getCustomParameters()).containsEntry("top_p", "0.8");
+                    assertThat(fast.getToolTimeout()).isEqualTo(java.time.Duration.ofSeconds(30));
+                    assertThat(fast.getAutoSaveInterval()).isEqualTo(2);
+                    assertThat(fast.getEnableFileTools()).isTrue();
+                    assertThat(fast.getEnableBashTool()).isTrue();
+                    assertThat(fast.getEnableManualCompact()).isTrue();
+                    assertThat(fast.getEnableTodoWrite()).isTrue();
+                    assertThat(fast.getTodoNagThreshold()).isEqualTo(5);
+                    assertThat(fast.getEnableFileSnapshot()).isTrue();
+                    assertThat(fast.getEnableSubAgent()).isTrue();
+                    assertThat(fast.getEnableSkill()).isTrue();
+                    assertThat(fast.getSkillsDirectory()).isEqualTo("instance-skills");
+                    assertThat(fast.getEnableTaskBoard()).isTrue();
+                    assertThat(fast.getTasksDirectory()).isEqualTo("instance-tasks");
+                    assertThat(fast.getEnableBackgroundTasks()).isTrue();
+                    assertThat(fast.getIdentityPrompt()).isEqualTo("fast identity");
                 });
     }
 

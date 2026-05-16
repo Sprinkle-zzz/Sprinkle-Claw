@@ -2,6 +2,7 @@ package icu.sprinkle.loom.bootstrap;
 
 import icu.sprinkle.loom.core.AgentResult;
 import icu.sprinkle.loom.core.context.AgentContext;
+import icu.sprinkle.loom.llm.LlmCapabilities;
 import icu.sprinkle.loom.llm.LlmProvider;
 import icu.sprinkle.loom.protocol.llm.ChatRequest;
 import icu.sprinkle.loom.protocol.llm.ChatResponse;
@@ -27,6 +28,28 @@ class LoomBuilderToolRegistrationTest {
                 new Usage(10, 20),
                 "test-model"
         );
+    }
+
+    private static LlmProvider mockProviderWithCapabilities(int contextWindowTokens, int maxOutputTokens) {
+        return new LlmProvider() {
+            @Override
+            public ChatResponse chat(ChatRequest request) {
+                return new ChatResponse(
+                        List.of(new ContentBlock.TextBlock("ok")),
+                        StopReason.END_TURN,
+                        new Usage(10, 20),
+                        "test-model"
+                );
+            }
+
+            @Override
+            public LlmCapabilities capabilities() {
+                return LlmCapabilities.builder()
+                        .contextWindowTokens(contextWindowTokens)
+                        .maxOutputTokens(maxOutputTokens)
+                        .build();
+            }
+        };
     }
 
     private static Set<String> toolNames(AgentContext ctx) {
@@ -148,6 +171,30 @@ class LoomBuilderToolRegistrationTest {
                 .build();
 
         assertThat(claw.context().toolDefinitions()).isEmpty();
+        claw.close();
+    }
+
+    @Test
+    void buildUsesProviderCapabilitiesForModelTokenLimitsByDefault() {
+        var claw = LoomBuilder.create()
+                .llmProvider(mockProviderWithCapabilities(64_000, 8_192))
+                .build();
+
+        assertThat(claw.context().modelContextWindow()).isEqualTo(64_000);
+        assertThat(claw.context().modelMaxOutputTokens()).isEqualTo(8_192);
+        claw.close();
+    }
+
+    @Test
+    void explicitTokenLimitsOverrideProviderCapabilities() {
+        var claw = LoomBuilder.create()
+                .llmProvider(mockProviderWithCapabilities(64_000, 8_192))
+                .contextWindowTokens(32_000)
+                .maxOutputTokens(4_096)
+                .build();
+
+        assertThat(claw.context().modelContextWindow()).isEqualTo(32_000);
+        assertThat(claw.context().modelMaxOutputTokens()).isEqualTo(4_096);
         claw.close();
     }
 }

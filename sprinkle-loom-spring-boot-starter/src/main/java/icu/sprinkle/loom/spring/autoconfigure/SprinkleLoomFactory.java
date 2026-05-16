@@ -9,7 +9,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 根据 {@link SprinkleLoomProperties} 中的多实例配置构建命名 {@link Loom} 实例。
@@ -56,8 +58,50 @@ public class SprinkleLoomFactory {
                 .model(coalesce(instance.getModel(), null))
                 .maxIterations(coalesceInt(instance.getMaxIterations(), agent.getMaxIterations()))
                 .loopTimeout(coalesceDuration(instance.getLoopTimeout(), agent.getLoopTimeout()))
+                .toolTimeout(coalesceDuration(instance.getToolTimeout(), agent.getToolTimeout()))
                 .systemPrompt(coalesce(instance.getSystemPrompt(), agent.getSystemPrompt()))
-                .compactionThreshold(coalesceInt(instance.getCompactionThreshold(), agent.getCompactionThreshold()));
+                .compactionThreshold(coalesceInt(instance.getCompactionThreshold(), agent.getCompactionThreshold()))
+                .autoSaveInterval(coalesceInt(instance.getAutoSaveInterval(), agent.getAutoSaveInterval()))
+                .todoNagThreshold(coalesceInt(instance.getTodoNagThreshold(), agent.getTodoNagThreshold()))
+                .identityPrompt(coalesce(instance.getIdentityPrompt(), agent.getIdentityPrompt()));
+
+        Integer contextWindowTokens = coalesceInteger(
+                instance.getContextWindowTokens(), properties.getLlm().getContextWindowTokens());
+        if (contextWindowTokens != null) {
+            builder.contextWindowTokens(contextWindowTokens);
+        }
+
+        Integer maxOutputTokens = coalesceInteger(
+                instance.getMaxOutputTokens(), properties.getLlm().getMaxOutputTokens());
+        if (maxOutputTokens != null) {
+            builder.maxOutputTokens(maxOutputTokens);
+        }
+
+        Integer maxTokens = coalesceInteger(instance.getMaxTokens(), properties.getLlm().getMaxTokens());
+        if (maxTokens != null) {
+            builder.maxTokens(maxTokens);
+        }
+
+        Double temperature = coalesceDouble(instance.getTemperature(), properties.getLlm().getTemperature());
+        if (temperature != null) {
+            builder.temperature(temperature);
+        }
+
+        Duration requestTimeout = coalesceDuration(instance.getRequestTimeout(), properties.getLlm().getRequestTimeout());
+        if (requestTimeout != null) {
+            builder.requestTimeout(requestTimeout);
+        }
+
+        Map<String, String> headers = coalesceMap(instance.getHeaders(), properties.getLlm().getHeaders());
+        if (headers != null && !headers.isEmpty()) {
+            builder.headers(headers);
+        }
+
+        Map<String, Object> customParameters = coalesceMap(
+                instance.getCustomParameters(), properties.getLlm().getCustomParameters());
+        if (customParameters != null && !customParameters.isEmpty()) {
+            builder.customParameters(customParameters);
+        }
 
         // workingDirectory：instance 优先，否则用全局；都为空则不调用（保持 LoomBuilder 默认 null）
         String workingDir = coalesce(instance.getWorkingDirectory(), agent.getWorkingDirectory());
@@ -73,6 +117,43 @@ public class SprinkleLoomFactory {
         }
         if (notBlank(instance.getBaseUrl())) {
             builder.baseUrl(instance.getBaseUrl());
+        }
+
+        String skillsDir = coalesce(instance.getSkillsDirectory(), agent.getSkillsDirectory());
+        if (notBlank(skillsDir)) {
+            builder.skillsDirectory(Path.of(skillsDir));
+        }
+        String tasksDir = coalesce(instance.getTasksDirectory(), agent.getTasksDirectory());
+        if (notBlank(tasksDir)) {
+            builder.tasksDirectory(Path.of(tasksDir));
+        }
+
+        if (coalesceBoolean(instance.getEnableFileTools(), agent.isEnableFileTools())) {
+            builder.enableFileTools();
+        }
+        if (coalesceBoolean(instance.getEnableBashTool(), agent.isEnableBashTool())) {
+            builder.enableBashTool();
+        }
+        if (coalesceBoolean(instance.getEnableManualCompact(), agent.isEnableManualCompact())) {
+            builder.enableManualCompact();
+        }
+        if (coalesceBoolean(instance.getEnableTodoWrite(), agent.isEnableTodoWrite())) {
+            builder.enableTodoWrite();
+        }
+        if (coalesceBoolean(instance.getEnableFileSnapshot(), agent.isEnableFileSnapshot())) {
+            builder.enableFileSnapshot();
+        }
+        if (coalesceBoolean(instance.getEnableSubAgent(), agent.isEnableSubAgent())) {
+            builder.enableSubAgent();
+        }
+        if (coalesceBoolean(instance.getEnableSkill(), agent.isEnableSkill())) {
+            builder.enableSkill();
+        }
+        if (coalesceBoolean(instance.getEnableTaskBoard(), agent.isEnableTaskBoard())) {
+            builder.enableTaskBoard();
+        }
+        if (coalesceBoolean(instance.getEnableBackgroundTasks(), agent.isEnableBackgroundTasks())) {
+            builder.enableBackgroundTasks();
         }
 
         // blockedCommands：instance 非 null 覆盖（包括显式空列表 → 不阻断），否则用全局
@@ -104,8 +185,27 @@ public class SprinkleLoomFactory {
         return instanceValue != null ? instanceValue : globalValue;
     }
 
+    private static Integer coalesceInteger(Integer instanceValue, Integer globalValue) {
+        return instanceValue != null ? instanceValue : globalValue;
+    }
+
+    private static Double coalesceDouble(Double instanceValue, Double globalValue) {
+        return instanceValue != null ? instanceValue : globalValue;
+    }
+
     private static Duration coalesceDuration(Duration instanceValue, Duration globalValue) {
         return instanceValue != null ? instanceValue : globalValue;
+    }
+
+    private static boolean coalesceBoolean(Boolean instanceValue, boolean globalValue) {
+        return instanceValue != null ? instanceValue : globalValue;
+    }
+
+    private static <K, V> Map<K, V> coalesceMap(Map<K, V> instanceValue, Map<K, V> globalValue) {
+        if (instanceValue != null) {
+            return instanceValue;
+        }
+        return globalValue != null ? new LinkedHashMap<>(globalValue) : Map.of();
     }
 
     private static boolean notBlank(String s) {

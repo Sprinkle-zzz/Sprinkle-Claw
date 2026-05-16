@@ -19,6 +19,7 @@ import icu.sprinkle.loom.core.snapshot.FileSnapshot;
 import icu.sprinkle.loom.core.snapshot.GitFileSnapshot;
 import icu.sprinkle.loom.core.snapshot.NoopFileSnapshot;
 import icu.sprinkle.loom.core.snapshot.SnapshotException;
+import icu.sprinkle.loom.llm.LlmCapabilities;
 import icu.sprinkle.loom.llm.LlmConfig;
 import icu.sprinkle.loom.llm.LlmProvider;
 import icu.sprinkle.loom.llm.LlmProviderFactory;
@@ -94,6 +95,8 @@ public final class LoomBuilder {
     private int autoSaveInterval = 5;
     private int compactionThreshold = 100_000;
     private int modelContextWindow = 0;
+    private Integer contextWindowTokens;
+    private Integer maxOutputTokens;
     private boolean enableFileTools = false;
     private boolean enableBashTool = false;
     private boolean enableManualCompact = false;
@@ -410,6 +413,28 @@ public final class LoomBuilder {
     }
 
     /**
+     * 设置当前模型的上下文窗口大小（token 数）。
+     *
+     * <p>这是模型能力配置；Agent 的压缩、裁剪和工具输出动态截断会消费该值。
+     * 未设置时使用 {@link LlmProvider#capabilities()} 返回的模型能力默认值。</p>
+     */
+    public LoomBuilder contextWindowTokens(int contextWindowTokens) {
+        this.contextWindowTokens = contextWindowTokens;
+        return this;
+    }
+
+    /**
+     * 设置当前模型支持的最大输出 token 数。
+     *
+     * <p>这是模型能力配置，用于计算可用输入窗口；不改变单次请求的
+     * {@link #maxTokens(int)} 生成上限。</p>
+     */
+    public LoomBuilder maxOutputTokens(int maxOutputTokens) {
+        this.maxOutputTokens = maxOutputTokens;
+        return this;
+    }
+
+    /**
      * 启用 TodoWrite 工具（自动注册 TodoWriteTool + TodoReminderHook）。
      */
     public LoomBuilder enableTodoWrite() {
@@ -594,6 +619,9 @@ public final class LoomBuilder {
      */
     public Loom build() {
         LlmProvider provider = resolveLlmProvider();
+        LlmCapabilities capabilities = provider.capabilities();
+        int effectiveContextWindow = resolveContextWindow(capabilities);
+        int effectiveMaxOutputTokens = resolveMaxOutputTokens(capabilities);
 
         ToolRegistry registry = new ToolRegistry();
         discoverAndRegisterTools(registry);
@@ -635,7 +663,7 @@ public final class LoomBuilder {
                 .workingDirectory(workingDirectory)
                 .blockedCommands(blockedCommands)
                 .compactionThreshold(compactionThreshold)
-                .modelContextWindow(modelContextWindow)
+                .modelContextWindow(effectiveContextWindow)
                 .persistSessions(sessionStore != null)
                 .autoSaveInterval(autoSaveInterval)
                 .enableTodoWrite(enableTodoWrite)
@@ -660,9 +688,8 @@ public final class LoomBuilder {
                 registry.definitions(), workingDirectory, systemPrompt, includeEnvironment);
 
         AgentContext context = new AgentContext(fullPrompt, config, registry.definitions());
-        if (modelContextWindow > 0) {
-            context.setModelContextWindow(modelContextWindow);
-        }
+        context.setModelContextWindow(effectiveContextWindow);
+        context.setModelMaxOutputTokens(effectiveMaxOutputTokens);
 
         // MVP2: 将 FileTimestampCache 和 FileSnapshot 注入到共享 attributes 中
         context.setAttribute("fileTimestampCache", timestampCache);
@@ -777,6 +804,23 @@ public final class LoomBuilder {
                 config.compactionThreshold(), hooks);
     }
 
+    private int resolveContextWindow(LlmCapabilities capabilities) {
+        if (contextWindowTokens != null && contextWindowTokens > 0) {
+            return contextWindowTokens;
+        }
+        if (modelContextWindow > 0) {
+            return modelContextWindow;
+        }
+        return capabilities != null ? capabilities.contextWindowTokens() : LlmCapabilities.DEFAULT.contextWindowTokens();
+    }
+
+    private int resolveMaxOutputTokens(LlmCapabilities capabilities) {
+        if (maxOutputTokens != null && maxOutputTokens > 0) {
+            return maxOutputTokens;
+        }
+        return capabilities != null ? capabilities.maxOutputTokens() : LlmCapabilities.DEFAULT.maxOutputTokens();
+    }
+
     /**
      * 解析 LLM 提供者：优先使用手动设置，否则通过 ServiceLoader 自动发现。
      */
@@ -799,6 +843,16 @@ public final class LoomBuilder {
                 .baseUrl(baseUrl != null ? baseUrl : "")
                 .headers(customHeaders)
                 .customParameters(customParameters);
+        if (contextWindowTokens != null || maxOutputTokens != null) {
+            LlmCapabilities.Builder capabilitiesBuilder = LlmCapabilities.builder();
+            if (contextWindowTokens != null) {
+                capabilitiesBuilder.contextWindowTokens(contextWindowTokens);
+            }
+            if (maxOutputTokens != null) {
+                capabilitiesBuilder.maxOutputTokens(maxOutputTokens);
+            }
+            configBuilder.capabilities(capabilitiesBuilder.build());
+        }
         if (maxTokens != null) {
             configBuilder.maxTokens(maxTokens);
         }
@@ -887,7 +941,7 @@ public final class LoomBuilder {
      * 嵌入式 Chat Bot 预设：零工具 + 启用多轮会话。
      *
      * <p>适用于客服 / 审批 / 数据分析等业务嵌入场景。后续仍需调用 {@link #apiKey}、
-     * {@link #model}（必填），按需 {@link #annotatedTools}、{@link #addSkill} 注册业务工具与技能。</p>
+     * {@link #model}（必填）。</p>
      *
      * <pre>{@code
      * Loom loom = LoomBuilder.chatBot()
@@ -933,8 +987,7 @@ public final class LoomBuilder {
     /**
      * 业务 Agent 预设：零内置工具 + 启用 Skill 加载 + 多轮会话。
      *
-     * <p>面向"领域知识 + 业务工具"的嵌入场景：通过 {@link #addSkill} 注入业务知识，
-     * 通过 {@link #annotatedTools} 注入业务操作。</p>
+     * <p>面向"领域知识 + 业务工具"的嵌入场景：通过 {@link #addSkill} 注入业务知识</p>
      *
      * <pre>{@code
      * Loom loom = LoomBuilder.businessAgent()

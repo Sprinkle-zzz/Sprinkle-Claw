@@ -43,7 +43,7 @@ import org.springframework.context.annotation.Bean;
  *
  * <p>用户使用示例：</p>
  * <pre>{@code
- * @Autowired Loom claw;                          // 注入 primary（claude）
+ * @Autowired Loom loom;
  * @Autowired @Qualifier("qa-bot") Loom qaBot;
  * }</pre>
  *
